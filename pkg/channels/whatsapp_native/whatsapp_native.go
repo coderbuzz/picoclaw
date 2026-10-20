@@ -70,7 +70,10 @@ func NewWhatsAppNativeChannel(
 	bus *bus.MessageBus,
 	storePath string,
 ) (channels.Channel, error) {
-	base := channels.NewBaseChannel(name, cfg, bus, bc.AllowFrom, channels.WithMaxMessageLength(65536))
+	base := channels.NewBaseChannel(name, cfg, bus, bc.AllowFrom,
+		channels.WithMaxMessageLength(65536),
+		channels.WithGroupTrigger(bc.GroupTrigger),
+	)
 	if storePath == "" {
 		storePath = "whatsapp"
 	}
@@ -346,7 +349,14 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 	if evt.Message == nil {
 		return
 	}
-	senderID := evt.Info.Sender.String()
+	if evt.Info.IsFromMe {
+		return
+	}
+	isGroup := evt.Info.Chat.Server == types.GroupServer
+	if isGroup && !groupAllowed(c.config.GroupPolicy, c.config.GroupAllowFrom, evt.Info.Chat) {
+		return
+	}
+	senderID := evt.Info.Sender.ToNonAD().String()
 	chatID := evt.Info.Chat.String()
 	content := evt.Message.GetConversation()
 	if content == "" && evt.Message.ExtendedTextMessage != nil {
@@ -356,6 +366,16 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 
 	if content == "" {
 		return
+	}
+
+	mentioned := false
+	if isGroup {
+		mentioned = isTriggeredToBot(contextInfoOf(evt.Message), c.botJIDs())
+		respond, cleaned := c.ShouldRespondInGroup(mentioned, content)
+		if !respond {
+			return
+		}
+		content = cleaned
 	}
 
 	var mediaPaths []string
@@ -385,9 +405,20 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		DisplayName: evt.Info.PushName,
 	}
 
-	if !c.IsAllowedSender(sender) {
+	// allow_from may list the sender as number, PN JID or LID; accept the first form it knows.
+	allowed := false
+	for _, id := range senderIDs(evt.Info.Sender, evt.Info.SenderAlt, c.counterpartJID) {
+		sender.PlatformID = id
+		sender.CanonicalID = identity.BuildCanonicalID("whatsapp", id)
+		if c.IsAllowedSender(sender) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
 		return
 	}
+	senderID = sender.PlatformID
 
 	logger.DebugCF(
 		"whatsapp",
@@ -400,11 +431,49 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		ChatID:    chatID,
 		SenderID:  senderID,
 		MessageID: messageID,
+		Mentioned: mentioned,
 		ChatType:  peerKind,
 		Raw:       metadata,
 	}
 
 	c.HandleInboundContext(c.runCtx, chatID, content, mediaPaths, inboundCtx, sender)
+}
+
+// botJIDs returns the bot's own phone-number JID and LID (empty until paired).
+func (c *WhatsAppNativeChannel) botJIDs() []types.JID {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil || client.Store == nil {
+		return nil
+	}
+	var ids []types.JID
+	if client.Store.ID != nil {
+		ids = append(ids, client.Store.ID.ToNonAD())
+	}
+	return append(ids, client.Store.LID.ToNonAD())
+}
+
+// counterpartJID maps a LID to its phone-number JID and back; empty when unknown.
+func (c *WhatsAppNativeChannel) counterpartJID(jid types.JID) types.JID {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil || client.Store == nil || client.Store.LIDs == nil {
+		return types.EmptyJID
+	}
+	var out types.JID
+	var err error
+	switch jid.Server {
+	case types.HiddenUserServer:
+		out, err = client.Store.LIDs.GetPNForLID(c.runCtx, jid)
+	case types.DefaultUserServer:
+		out, err = client.Store.LIDs.GetLIDForPN(c.runCtx, jid)
+	}
+	if err != nil {
+		return types.EmptyJID
+	}
+	return out
 }
 
 func (c *WhatsAppNativeChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, error) {
