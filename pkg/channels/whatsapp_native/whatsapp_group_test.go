@@ -124,17 +124,19 @@ func TestPrependQuoted(t *testing.T) {
 	}
 	conv := &waE2E.Message{Conversation: proto.String("rapat Sabtu jam 9")}
 	img := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String("denah")}}
+	pdf := &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{FileName: proto.String("iuran.pdf")}}
 	cases := []struct {
-		name, content, want string
-		ci                  *waE2E.ContextInfo
+		name, content, want, note string
+		ci                        *waE2E.ContextInfo
 	}{
-		{"no quote", "halo", "halo", nil},
-		{"user text", "@bot ini jam berapa?", "[quoted user message from 6281111]: rapat Sabtu jam 9\n\n@bot ini jam berapa?", quote("6281111@s.whatsapp.net", conv)},
-		{"bot text", "lanjut", "[quoted assistant message from 628000000000]: rapat Sabtu jam 9\n\nlanjut", quote(botPN.String(), conv)},
-		{"image", "", "[quoted user message from 6281111]: [image] denah", quote("6281111@s.whatsapp.net", img)},
+		{"no quote", "halo", "halo", "", nil},
+		{"user text", "@bot ini jam berapa?", "[quoted user message from 6281111]: rapat Sabtu jam 9\n\n@bot ini jam berapa?", "", quote("6281111@s.whatsapp.net", conv)},
+		{"bot text", "lanjut", "[quoted assistant message from 628000000000]: rapat Sabtu jam 9\n\nlanjut", "", quote(botPN.String(), conv)},
+		{"image", "", "[quoted user message from 6281111]: [image] denah", "", quote("6281111@s.whatsapp.net", img)},
+		{"file failed", "cek", "[quoted user message from 6281111]: [file: iuran.pdf, download failed]\n\ncek", "download failed", quote("6281111@s.whatsapp.net", pdf)},
 	}
 	for _, tc := range cases {
-		if got := prependQuoted(tc.content, tc.ci, bots); got != tc.want {
+		if got := prependQuoted(tc.content, tc.ci, bots, tc.note); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
 	}

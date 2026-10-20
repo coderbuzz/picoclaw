@@ -390,7 +390,8 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		}
 	}
 
-	content = prependQuoted(content, contextInfoOf(evt.Message), c.botJIDs())
+	ci := contextInfoOf(evt.Message)
+	quotedAtt := inboundMediaOf(ci.GetQuotedMessage())
 
 	metadata := make(map[string]string)
 	metadata["message_id"] = evt.Info.ID
@@ -437,20 +438,27 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 	// transfer cannot stall later events (messages, receipts, disconnects).
 	deliver := func() {
 		var mediaPaths []string
-		if att != nil {
+		fetch := func(im *inboundMedia, id string) string {
 			c.mu.Lock()
 			client := c.client
 			c.mu.Unlock()
-			note := "download failed"
-			if client != nil {
-				var ref string
-				ref, note = c.fetchInboundMedia(client, att, channels.BuildMediaScope(c.Name(), chatID, messageID), messageID)
-				if ref != "" {
-					mediaPaths = append(mediaPaths, ref)
-				}
+			if client == nil {
+				return "download failed"
 			}
-			content = strings.TrimSpace(content + "\n" + att.annotation(note))
+			ref, note := c.fetchInboundMedia(client, im, channels.BuildMediaScope(c.Name(), chatID, messageID), id)
+			if ref != "" {
+				mediaPaths = append(mediaPaths, ref)
+			}
+			return note
 		}
+		quotedNote := ""
+		if quotedAtt != nil {
+			quotedNote = fetch(quotedAtt, ci.GetStanzaID())
+		}
+		if att != nil {
+			content = strings.TrimSpace(content + "\n" + att.annotation(fetch(att, messageID)))
+		}
+		content = prependQuoted(content, ci, c.botJIDs(), quotedNote)
 
 		logger.DebugCF(
 			"whatsapp",
@@ -470,7 +478,7 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 
 		c.HandleInboundContext(c.runCtx, chatID, content, mediaPaths, inboundCtx, sender)
 	}
-	if att == nil {
+	if att == nil && quotedAtt == nil {
 		deliver()
 		return
 	}
