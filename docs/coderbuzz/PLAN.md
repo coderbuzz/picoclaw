@@ -22,7 +22,7 @@ isi chat, atau nama orang di repo ini (kode, tes, PR, commit). Pakai contoh fikt
 | S2 | WA grup: gate mention/reply/prefix, skip IsFromMe, allowlist grup, allow_from normalisasi LID/nomor | selesai (#2) |
 | S3 | Pesan duluan & cron ke grup memakai agen grup yang benar; riwayat agen yang di-route (context manager legacy) | selesai (#3) |
 | S3b | Dedup balasan cron vs tool message ke grup (kunci sesi route) | selesai (#4) |
-| S4 | WA media: gambar/stiker masuk -> vision, voice note -> transkripsi (`voice`), dokumen; kirim gambar/dokumen keluar | |
+| S4 | WA media: gambar/stiker masuk -> vision, voice note -> transkripsi (`voice`), dokumen; kirim gambar/dokumen keluar | selesai (PR s4-wa-media) |
 | S5 | (opsional, keputusan pemilik nanti) konteks pasif grup: simpan pesan grup non-trigger ke sesi tanpa memicu balasan | |
 
 ### S2 — kriteria selesai
