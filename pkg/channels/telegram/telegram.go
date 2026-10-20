@@ -441,7 +441,8 @@ func (c *TelegramChannel) StartTyping(ctx context.Context, chatID string) (func(
 	return cancel, nil
 }
 
-// ReactToMessage implements channels.ReactionCapable: 👀 on the inbound message while it is processed.
+// ReactToMessage implements channels.ReactionCapable: 👀 marks the message as received.
+// The reaction is kept after the reply (owner's choice), so undo is a no-op.
 func (c *TelegramChannel) ReactToMessage(ctx context.Context, chatID, messageID string) (func(), error) {
 	cid, _, err := parseTelegramChatID(chatID)
 	if err != nil {
@@ -451,21 +452,11 @@ func (c *TelegramChannel) ReactToMessage(ctx context.Context, chatID, messageID 
 	if err != nil {
 		return func() {}, err
 	}
-	err = c.bot.SetMessageReaction(ctx, &telego.SetMessageReactionParams{
+	return func() {}, c.bot.SetMessageReaction(ctx, &telego.SetMessageReactionParams{
 		ChatID:    tu.ID(cid),
 		MessageID: mid,
 		Reaction:  []telego.ReactionType{&telego.ReactionTypeEmoji{Type: telego.ReactionEmoji, Emoji: "👀"}},
 	})
-	if err != nil {
-		return func() {}, err
-	}
-	return func() {
-		_ = c.bot.SetMessageReaction(context.WithoutCancel(ctx), &telego.SetMessageReactionParams{
-			ChatID:    tu.ID(cid),
-			MessageID: mid,
-			Reaction:  []telego.ReactionType{},
-		})
-	}, nil
 }
 
 // EditMessage implements channels.MessageEditor.
