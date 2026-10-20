@@ -174,10 +174,13 @@ PicoClaw can connect to WhatsApp in two ways:
   "channel_list": {
     "whatsapp": {
       "enabled": true,
-      "type": "whatsapp",
-      "use_native": true,
-      "session_store_path": "",
-      "allow_from": []
+      "type": "whatsapp_native",
+      "allow_from": [],
+      "settings": {
+        "use_native": true,
+        "bridge_url": "",
+        "session_store_path": ""
+      }
     }
   }
 }
