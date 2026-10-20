@@ -283,6 +283,9 @@ func (c *WhatsAppNativeChannel) eventHandler(evt any) {
 	switch v := evt.(type) {
 	case *events.Message:
 		c.handleIncoming(v)
+	case *events.Connected, *events.PushNameSetting:
+		// PushName may only arrive after the first app-state sync, hence both events.
+		c.sendAvailable()
 	case *events.Disconnected:
 		logger.InfoCF("whatsapp", "WhatsApp disconnected, will attempt reconnection", nil)
 		c.reconnectMu.Lock()
@@ -426,6 +429,7 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 	senderID = sender.PlatformID
+	c.markRead(evt)
 
 	// Text is delivered inline; media is downloaded off the whatsmeow event loop so a slow
 	// transfer cannot stall later events (messages, receipts, disconnects).
