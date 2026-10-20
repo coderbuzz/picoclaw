@@ -375,7 +375,10 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		if !respond {
 			return
 		}
-		content = cleaned
+		content = stripBotMentions(cleaned, c.botJIDs())
+		if content == "" {
+			return
+		}
 	}
 
 	var mediaPaths []string

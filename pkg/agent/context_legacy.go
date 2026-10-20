@@ -24,7 +24,7 @@ func (m *legacyContextManager) Assemble(_ context.Context, req *AssembleRequest)
 	// Legacy: read history from session, return as-is.
 	// Budget enforcement happens in BuildMessages caller via
 	// isOverContextBudget + forceCompression.
-	agent := m.al.registry.GetDefaultAgent()
+	agent := m.al.agentForSession(req.SessionKey)
 	if agent == nil {
 		return &AssembleResponse{}, nil
 	}
@@ -77,7 +77,7 @@ func (m *legacyContextManager) Clear(_ context.Context, sessionKey string) error
 // maybeSummarize triggers summarization if the session history exceeds thresholds.
 // It runs asynchronously in a goroutine.
 func (m *legacyContextManager) maybeSummarize(sessionKey string) {
-	agent := m.al.registry.GetDefaultAgent()
+	agent := m.al.agentForSession(sessionKey)
 	if agent == nil {
 		return
 	}
@@ -115,7 +115,7 @@ type compressionResult struct {
 // It drops the oldest ~50% of Turns (a Turn is a complete user→LLM→response
 // cycle, as defined in #1316), so tool-call sequences are never split.
 func (m *legacyContextManager) forceCompression(sessionKey string) (compressionResult, bool) {
-	agent := m.al.registry.GetDefaultAgent()
+	agent := m.al.agentForSession(sessionKey)
 	if agent == nil {
 		return compressionResult{}, false
 	}
