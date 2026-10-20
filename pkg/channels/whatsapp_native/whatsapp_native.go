@@ -358,13 +358,10 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 	}
 	senderID := evt.Info.Sender.ToNonAD().String()
 	chatID := evt.Info.Chat.String()
-	content := evt.Message.GetConversation()
-	if content == "" && evt.Message.ExtendedTextMessage != nil {
-		content = evt.Message.ExtendedTextMessage.GetText()
-	}
-	content = utils.SanitizeMessageContent(content)
+	content := utils.SanitizeMessageContent(messageText(evt.Message))
+	att := inboundMediaOf(evt.Message)
 
-	if content == "" {
+	if content == "" && att == nil {
 		return
 	}
 
@@ -381,8 +378,6 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 			content = cleaned
 		}
 	}
-
-	var mediaPaths []string
 
 	metadata := make(map[string]string)
 	metadata["message_id"] = evt.Info.ID
@@ -423,6 +418,23 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 	senderID = sender.PlatformID
+
+	// Download only after the group and sender gates, so ignored messages cost nothing.
+	var mediaPaths []string
+	if att != nil {
+		c.mu.Lock()
+		client := c.client
+		c.mu.Unlock()
+		note := "download failed"
+		if client != nil {
+			var ref string
+			ref, note = c.fetchInboundMedia(client, att, channels.BuildMediaScope(c.Name(), chatID, messageID), messageID)
+			if ref != "" {
+				mediaPaths = append(mediaPaths, ref)
+			}
+		}
+		content = strings.TrimSpace(content + "\n" + att.annotation(note))
+	}
 
 	logger.DebugCF(
 		"whatsapp",

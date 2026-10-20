@@ -25,6 +25,10 @@ func contextInfoOf(m *waE2E.Message) *waE2E.ContextInfo {
 		return m.GetImageMessage().GetContextInfo()
 	case m.GetVideoMessage() != nil:
 		return m.GetVideoMessage().GetContextInfo()
+	case m.GetAudioMessage() != nil:
+		return m.GetAudioMessage().GetContextInfo()
+	case m.GetStickerMessage() != nil:
+		return m.GetStickerMessage().GetContextInfo()
 	case m.GetDocumentMessage() != nil:
 		return m.GetDocumentMessage().GetContextInfo()
 	}
