@@ -441,6 +441,33 @@ func (c *TelegramChannel) StartTyping(ctx context.Context, chatID string) (func(
 	return cancel, nil
 }
 
+// ReactToMessage implements channels.ReactionCapable: 👀 on the inbound message while it is processed.
+func (c *TelegramChannel) ReactToMessage(ctx context.Context, chatID, messageID string) (func(), error) {
+	cid, _, err := parseTelegramChatID(chatID)
+	if err != nil {
+		return func() {}, err
+	}
+	mid, err := strconv.Atoi(messageID)
+	if err != nil {
+		return func() {}, err
+	}
+	err = c.bot.SetMessageReaction(ctx, &telego.SetMessageReactionParams{
+		ChatID:    tu.ID(cid),
+		MessageID: mid,
+		Reaction:  []telego.ReactionType{&telego.ReactionTypeEmoji{Type: telego.ReactionEmoji, Emoji: "👀"}},
+	})
+	if err != nil {
+		return func() {}, err
+	}
+	return func() {
+		_ = c.bot.SetMessageReaction(context.WithoutCancel(ctx), &telego.SetMessageReactionParams{
+			ChatID:    tu.ID(cid),
+			MessageID: mid,
+			Reaction:  []telego.ReactionType{},
+		})
+	}, nil
+}
+
 // EditMessage implements channels.MessageEditor.
 func (c *TelegramChannel) EditMessage(ctx context.Context, chatID string, messageID string, content string) error {
 	useMarkdownV2 := c.tgCfg.UseMarkdownV2
