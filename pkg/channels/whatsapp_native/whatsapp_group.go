@@ -115,11 +115,12 @@ func stripBotMentions(content string, bots []types.JID) string {
 }
 
 // prependQuoted adds the replied-to message as context, in the same format the Telegram channel uses.
-func prependQuoted(content string, ci *waE2E.ContextInfo, bots []types.JID) string {
+// note is the quoted attachment's download note ("" when it was stored).
+func prependQuoted(content string, ci *waE2E.ContextInfo, bots []types.JID, note string) string {
 	q := ci.GetQuotedMessage()
 	quoted := strings.TrimSpace(messageText(q))
 	if im := inboundMediaOf(q); im != nil {
-		quoted = strings.TrimSpace("[" + im.kind + "] " + quoted)
+		quoted = strings.TrimSpace(im.annotation(note) + " " + quoted)
 	}
 	if quoted == "" {
 		return content
