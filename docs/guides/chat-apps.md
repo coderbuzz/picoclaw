@@ -179,12 +179,21 @@ PicoClaw can connect to WhatsApp in two ways:
       "settings": {
         "use_native": true,
         "bridge_url": "",
-        "session_store_path": ""
+        "session_store_path": "",
+        "group_policy": "open",
+        "group_allow_from": []
       }
     }
   }
 }
 ```
+
+**Groups (native)**
+
+- `group_policy`: `"open"` (default, serve every group), `"allowlist"` (only groups in `group_allow_from`, e.g. `"1203630000000000@g.us"`), or `"disabled"` (ignore groups). Messages from rejected groups are dropped.
+- In a group the bot replies only when it is mentioned (phone-number JID or LID), when the message quotes one of its messages, or when the text starts with a prefix from the channel's `group_trigger.prefixes`. Set `"group_trigger": {"mention_only": true}` to disable prefixes. Without any `group_trigger` every message in an allowed group triggers a reply.
+- Messages sent from the bot's own account are never processed.
+- `allow_from` accepts a sender as a bare number (`628000000000`), a JID (`628000000000@s.whatsapp.net`, device suffix ignored) or a LID (`...@lid`); when WhatsApp knows the LID/number mapping, either form matches.
 
 If `session_store_path` is empty, the session is stored in `<workspace>/whatsapp/`. Run `picoclaw gateway`; on first run, scan the QR code printed in the terminal with WhatsApp → Linked Devices.
 

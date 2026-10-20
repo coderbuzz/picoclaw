@@ -539,6 +539,9 @@ type WhatsAppSettings struct {
 	BridgeURL        string `json:"bridge_url"         yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_BRIDGE_URL"`
 	UseNative        bool   `json:"use_native"         yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_USE_NATIVE"`
 	SessionStorePath string `json:"session_store_path" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_SESSION_STORE_PATH"`
+	// GroupPolicy: "open" (default, all groups), "allowlist" (only GroupAllowFrom), "disabled" (no groups).
+	GroupPolicy    string              `json:"group_policy"     yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_GROUP_POLICY"`
+	GroupAllowFrom FlexibleStringSlice `json:"group_allow_from" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_GROUP_ALLOW_FROM"`
 }
 
 type TelegramSettings struct {
