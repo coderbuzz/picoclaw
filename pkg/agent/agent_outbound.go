@@ -44,13 +44,16 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 		return
 	}
 
-	alreadySentToSameChat := false
-	defaultAgent := al.GetRegistry().GetDefaultAgent()
-	if defaultAgent != nil {
-		if tool, ok := defaultAgent.Tools.Get("message"); ok {
-			if mt, ok := tool.(*tools.MessageTool); ok {
-				alreadySentToSameChat = mt.HasSentTo(sessionKey, channel, chatID)
-			}
+	alreadySentToSameChat := al.messageToolSentTo(al.GetRegistry().GetDefaultAgent(), sessionKey, channel, chatID)
+	if !alreadySentToSameChat && chatTypeForTarget(channel, chatID) == "group" {
+		// Cron/system turns to a group run in the routed agent's route session,
+		// not under the caller's key (see ProcessDirectWithChannel).
+		msg := bus.InboundMessage{Context: bus.InboundContext{
+			Channel: channel, ChatID: chatID, ChatType: "group", SenderID: "cron",
+		}}
+		if route, agent, err := al.resolveMessageRoute(msg); err == nil {
+			routeKey := al.allocateRouteSession(route, msg).SessionKey
+			alreadySentToSameChat = al.messageToolSentTo(agent, routeKey, channel, chatID)
 		}
 	}
 
@@ -292,4 +295,16 @@ func (al *AgentLoop) handleReasoning(
 			})
 		}
 	}
+}
+
+func (al *AgentLoop) messageToolSentTo(agent *AgentInstance, sessionKey, channel, chatID string) bool {
+	if agent == nil {
+		return false
+	}
+	tool, ok := agent.Tools.Get("message")
+	if !ok {
+		return false
+	}
+	mt, ok := tool.(*tools.MessageTool)
+	return ok && mt.HasSentTo(sessionKey, channel, chatID)
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
 type histProvider struct{ seen [][]providers.Message }
@@ -124,6 +125,33 @@ func TestChatTypeForTarget(t *testing.T) {
 	} {
 		if got := chatTypeForTarget(tt.ch, tt.id); got != tt.want {
 			t.Errorf("%s/%s = %s, want %s", tt.ch, tt.id, got, tt.want)
+		}
+	}
+}
+
+func TestPublishResponseIfNeeded_GroupCronDedupsAgainstRouteSession(t *testing.T) {
+	const chat = "1203630000000000@g.us"
+	for _, sent := range []bool{true, false} {
+		al, _ := newGroupRoutingLoop(t, "whatsapp")
+		cm := &recordingChannelManager{}
+		al.channelManager = cm
+		grp, _ := al.registry.GetAgent("grp")
+		mt := tools.NewMessageTool()
+		mt.SetSendCallback(func(context.Context, string, string, string, string, []bus.MediaPart) error { return nil })
+		grp.Tools.Register(mt)
+
+		msg := bus.InboundMessage{Context: bus.InboundContext{
+			Channel: "whatsapp", ChatID: chat, ChatType: "group", SenderID: "cron",
+		}}
+		route, _, _ := al.resolveMessageRoute(msg)
+		routeKey := al.allocateRouteSession(route, msg).SessionKey
+		if sent {
+			mt.Execute(tools.WithToolSessionContext(context.Background(), "grp", routeKey, nil),
+				map[string]any{"content": "x", "channel": "whatsapp", "chat_id": chat})
+		}
+		al.PublishResponseIfNeeded(context.Background(), "whatsapp", chat, "agent:cron-1-x", "final")
+		if got := len(cm.dismissed) == 1; got != sent {
+			t.Fatalf("sent=%v: dismissed=%v", sent, cm.dismissed)
 		}
 	}
 }
