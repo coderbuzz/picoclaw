@@ -51,11 +51,17 @@ func (al *AgentLoop) ProcessDirectWithChannel(
 		return "", err
 	}
 
+	chatType := chatTypeForTarget(channel, chatID)
+	if chatType == "group" {
+		// Group targets use the route's own session (owning agent's history)
+		// instead of the caller's ephemeral key.
+		sessionKey = ""
+	}
 	msg := bus.InboundMessage{
 		Context: bus.InboundContext{
 			Channel:  channel,
 			ChatID:   chatID,
-			ChatType: "direct",
+			ChatType: chatType,
 			SenderID: "cron",
 		},
 		Content:    content,
@@ -286,25 +292,38 @@ func (al *AgentLoop) processSystemMessage(
 		return "", nil
 	}
 
-	// Use default agent for system messages
+	chatType := chatTypeForTarget(originChannel, originChatID)
+	inbound := bus.InboundContext{
+		Channel:  originChannel,
+		ChatID:   originChatID,
+		ChatType: chatType,
+		SenderID: msg.SenderID,
+	}
+
+	// Use default agent and main session for direct targets; group targets
+	// follow the dispatch rules and use the owning agent's route session.
 	agent := al.GetRegistry().GetDefaultAgent()
 	if agent == nil {
 		return "", fmt.Errorf("no default agent for system message")
 	}
-
-	// Use the origin session for context
 	sessionKey := session.BuildMainSessionKey(agent.ID)
 	dispatch := DispatchRequest{
-		SessionKey:  sessionKey,
 		UserMessage: fmt.Sprintf("[System: %s] %s", msg.SenderID, msg.Content),
 	}
-	if originChannel != "" || originChatID != "" {
-		dispatch.InboundContext = &bus.InboundContext{
-			Channel:  originChannel,
-			ChatID:   originChatID,
-			ChatType: "direct",
-			SenderID: msg.SenderID,
+	if chatType == "group" {
+		routed := bus.InboundMessage{Context: inbound}
+		route, routedAgent, err := al.resolveMessageRoute(routed)
+		if err != nil {
+			return "", err
 		}
+		allocation := al.allocateRouteSession(route, routed)
+		agent, sessionKey = routedAgent, allocation.SessionKey
+		dispatch.RouteResult = cloneResolvedRoute(&route)
+		dispatch.SessionScope = session.CloneScope(&allocation.Scope)
+	}
+	dispatch.SessionKey = sessionKey
+	if originChannel != "" || originChatID != "" {
+		dispatch.InboundContext = &inbound
 	}
 
 	return al.runAgentLoop(ctx, agent, processOptions{
@@ -313,4 +332,16 @@ func (al *AgentLoop) processSystemMessage(
 		EnableSummary:   false,
 		SendResponse:    true,
 	})
+}
+
+// chatTypeForTarget reports "group" for outbound-style targets (cron, system
+// messages) whose chat ID is a group on channels that can tell, else "direct".
+func chatTypeForTarget(channel, chatID string) string {
+	switch {
+	case strings.HasPrefix(channel, "whatsapp") && strings.HasSuffix(chatID, "@g.us"):
+		return "group"
+	case channel == "telegram" && strings.HasPrefix(chatID, "-"):
+		return "group"
+	}
+	return "direct"
 }

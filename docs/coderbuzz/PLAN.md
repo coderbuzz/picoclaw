@@ -19,8 +19,8 @@ isi chat, atau nama orang di repo ini (kode, tes, PR, commit). Pakai contoh fikt
 | ID | Isi | Status |
 |---|---|---|
 | S1 | Bump whatsmeow 20261017 + mautrix v0.32.0 (fix 405), perbaiki contoh config docs | selesai (#1) |
-| S2 | WA grup: gate mention/reply/prefix, skip IsFromMe, allowlist grup, allow_from normalisasi LID/nomor | |
-| S3 | Pesan duluan & cron ke grup memakai agen grup yang benar; riwayat agen yang di-route (context manager legacy) | |
+| S2 | WA grup: gate mention/reply/prefix, skip IsFromMe, allowlist grup, allow_from normalisasi LID/nomor | selesai (#2) |
+| S3 | Pesan duluan & cron ke grup memakai agen grup yang benar; riwayat agen yang di-route (context manager legacy) | selesai (#3) |
 | S4 | WA media: gambar/stiker masuk -> vision, voice note -> transkripsi (`voice`), dokumen; kirim gambar/dokumen keluar | |
 | S5 | (opsional, keputusan pemilik nanti) konteks pasif grup: simpan pesan grup non-trigger ke sesi tanpa memicu balasan | |
 

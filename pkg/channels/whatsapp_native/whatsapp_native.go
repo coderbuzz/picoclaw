@@ -375,7 +375,11 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		if !respond {
 			return
 		}
-		content = cleaned
+		// A bare mention keeps the original text so the bot still greets back.
+		content = stripBotMentions(cleaned, c.botJIDs())
+		if content == "" {
+			content = cleaned
+		}
 	}
 
 	var mediaPaths []string
