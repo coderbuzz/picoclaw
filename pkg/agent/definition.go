@@ -28,14 +28,18 @@ const (
 // parsed frontmatter so future refactors can read additional keys without
 // changing the loader contract again.
 type AgentFrontmatter struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Tools       []string       `json:"tools,omitempty"`
-	Model       string         `json:"model,omitempty"`
-	MaxTurns    *int           `json:"maxTurns,omitempty"`
-	Skills      []string       `json:"skills,omitempty"`
-	MCPServers  []string       `json:"mcpServers,omitempty"`
-	Fields      map[string]any `json:"-"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Tools       []string `json:"tools,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	MaxTurns    *int     `json:"maxTurns,omitempty"`
+	Skills      []string `json:"skills,omitempty"`
+	MCPServers  []string `json:"mcpServers,omitempty"`
+	// AllowReadPaths/AllowWritePaths are regexes added to the global
+	// tools.allow_read_paths/allow_write_paths for this agent only.
+	AllowReadPaths  []string       `json:"allow_read_paths,omitempty"`
+	AllowWritePaths []string       `json:"allow_write_paths,omitempty"`
+	Fields          map[string]any `json:"-"`
 }
 
 // AgentPromptDefinition represents the parsed AGENT.md or AGENTS.md prompt file.
@@ -181,6 +185,9 @@ func parseAgentFrontmatter(path, frontmatter string) (AgentFrontmatter, error) {
 		MaxTurns    *int     `yaml:"maxTurns"`
 		Skills      []string `yaml:"skills"`
 		MCPServers  []string `yaml:"mcpServers"`
+
+		AllowReadPaths  []string `yaml:"allow_read_paths"`
+		AllowWritePaths []string `yaml:"allow_write_paths"`
 	}
 	if err := yaml.Unmarshal([]byte(frontmatter), &typed); err != nil {
 		logger.WarnCF("agent", "Failed to decode AGENT.md frontmatter fields", map[string]any{
@@ -198,7 +205,10 @@ func parseAgentFrontmatter(path, frontmatter string) (AgentFrontmatter, error) {
 		MaxTurns:    typed.MaxTurns,
 		Skills:      append([]string(nil), typed.Skills...),
 		MCPServers:  append([]string(nil), typed.MCPServers...),
-		Fields:      rawFields,
+
+		AllowReadPaths:  append([]string(nil), typed.AllowReadPaths...),
+		AllowWritePaths: append([]string(nil), typed.AllowWritePaths...),
+		Fields:          rawFields,
 	}, nil
 }
 

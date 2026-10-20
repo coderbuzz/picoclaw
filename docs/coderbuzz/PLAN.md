@@ -24,6 +24,7 @@ isi chat, atau nama orang di repo ini (kode, tes, PR, commit). Pakai contoh fikt
 | S3b | Dedup balasan cron vs tool message ke grup (kunci sesi route) | selesai (#4) |
 | S4 | WA media: gambar/stiker masuk -> vision, voice note -> transkripsi (`voice`), dokumen; kirim gambar/dokumen keluar | selesai (PR s4-wa-media) |
 | S5 | (opsional, keputusan pemilik nanti) konteks pasif grup: simpan pesan grup non-trigger ke sesi tanpa memicu balasan | |
+| S6 | Path baca/tulis ekstra per agen lewat frontmatter AGENT.md (`allow_read_paths`/`allow_write_paths`), ditambahkan ke global hanya untuk agen itu | PR s6-agent-paths |
 
 ### S2 — kriteria selesai
 1. `NewWhatsAppNativeChannel` memasang `channels.WithGroupTrigger(...)` dari config channel; `handleIncoming` memakai
