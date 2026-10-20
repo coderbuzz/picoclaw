@@ -723,3 +723,12 @@ func extractProvider(registry *AgentRegistry) (providers.LLMProvider, bool) {
 	}
 	return defaultAgent.Provider, true
 }
+
+// idleExpired reports whether the session's newest message is older than idle (0 disables).
+func idleExpired(history []providers.Message, idle time.Duration, now time.Time) bool {
+	if idle <= 0 || len(history) == 0 {
+		return false
+	}
+	last := history[len(history)-1].CreatedAt
+	return last != nil && now.Sub(*last) > idle
+}

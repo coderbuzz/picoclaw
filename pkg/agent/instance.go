@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/isolation"
@@ -37,6 +38,7 @@ type AgentInstance struct {
 	ContextWindow             int
 	SummarizeMessageThreshold int
 	SummarizeTokenPercent     int
+	IdleReset                 time.Duration
 	Provider                  providers.LLMProvider
 	Sessions                  session.SessionStore
 	ContextBuilder            *ContextBuilder
@@ -178,6 +180,7 @@ func NewAgentInstance(
 	agentID := routing.DefaultAgentID
 	agentName := ""
 	var subagents *config.SubagentsConfig
+	var idleReset time.Duration
 	var skillsFilter []string
 
 	if agentCfg != nil {
@@ -187,6 +190,7 @@ func NewAgentInstance(
 			agentName = strings.TrimSpace(definition.Agent.Frontmatter.Name)
 		}
 		subagents = agentCfg.Subagents
+		idleReset = time.Duration(agentCfg.IdleResetMinutes) * time.Minute
 		skillsFilter = resolveAgentSkillsFilter(agentCfg, definition)
 	}
 	warnOnUnknownAgentMCPServerDeclarations(agentID, workspace, cfg, definition)
@@ -338,6 +342,7 @@ func NewAgentInstance(
 		ContextWindow:             contextWindow,
 		SummarizeMessageThreshold: summarizeMessageThreshold,
 		SummarizeTokenPercent:     summarizeTokenPercent,
+		IdleReset:                 idleReset,
 		Provider:                  provider,
 		Sessions:                  sessions,
 		ContextBuilder:            contextBuilder,

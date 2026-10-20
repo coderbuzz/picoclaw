@@ -558,6 +558,14 @@ func (al *AgentLoop) runAgentLoop(
 		opts.Dispatch.SessionAliases,
 	)
 
+	if idleExpired(agent.Sessions.GetHistory(opts.Dispatch.SessionKey), agent.IdleReset, time.Now()) {
+		if clearErr := al.contextManager.Clear(ctx, opts.Dispatch.SessionKey); clearErr != nil {
+			logger.WarnCF("agent", "Idle session reset failed", map[string]any{"agent_id": agent.ID, "error": clearErr.Error()})
+		} else {
+			logger.InfoCF("agent", "Idle session reset", map[string]any{"agent_id": agent.ID, "idle": agent.IdleReset.String()})
+		}
+	}
+
 	turnScope := al.newTurnEventScope(
 		agent.ID,
 		opts.Dispatch.SessionKey,

@@ -319,6 +319,8 @@ type AgentConfig struct {
 	Model     *AgentModelConfig `json:"model,omitempty"`
 	Skills    []string          `json:"skills,omitempty"`
 	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
+	// IdleResetMinutes clears a session's history when its last message is older than this (0 = never).
+	IdleResetMinutes int `json:"idle_reset_minutes,omitempty"`
 }
 
 type SubagentsConfig struct {
