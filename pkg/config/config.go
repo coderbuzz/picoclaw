@@ -544,6 +544,8 @@ type WhatsAppSettings struct {
 	GroupAllowFrom FlexibleStringSlice `json:"group_allow_from" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_GROUP_ALLOW_FROM"`
 	// MaxMediaBytes caps one incoming attachment download; 0 means the 20 MB default.
 	MaxMediaBytes int64 `json:"max_media_bytes" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_MAX_MEDIA_BYTES"`
+	// PairPhone (digits, with country code) requests an 8-character pairing code instead of scanning the QR.
+	PairPhone string `json:"pair_phone" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_PAIR_PHONE"`
 }
 
 type TelegramSettings struct {

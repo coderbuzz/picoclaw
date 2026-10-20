@@ -184,11 +184,17 @@ func (c *WhatsAppNativeChannel) Start(ctx context.Context) error {
 		c.reconnectMu.Unlock()
 		go func() {
 			defer c.wg.Done()
+			pairRequested := false
 			for {
 				select {
 				case <-c.runCtx.Done():
 					return
 				case evt, ok := <-qrChan:
+					// Pairing code needs an active QR session, so request it on the first code event.
+					if ok && evt.Event == "code" && c.config.PairPhone != "" && !pairRequested {
+						pairRequested = true
+						c.requestPairCode(client)
+					}
 					if !ok {
 						return
 					}
@@ -551,4 +557,21 @@ func parseJID(s string) (types.JID, error) {
 		return types.ParseJID(s)
 	}
 	return types.NewJID(s, types.DefaultUserServer), nil
+}
+
+// requestPairCode asks WhatsApp for a phone-number pairing code and writes it to
+// <storePath>/pair-code.txt (0600); the code itself is not logged.
+func (c *WhatsAppNativeChannel) requestPairCode(client *whatsmeow.Client) {
+	phone := strings.TrimPrefix(strings.TrimSpace(c.config.PairPhone), "+")
+	code, err := client.PairPhone(c.runCtx, phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	if err != nil {
+		logger.WarnCF("whatsapp", "Pairing code request failed", map[string]any{"error": err.Error()})
+		return
+	}
+	path := filepath.Join(c.storePath, "pair-code.txt")
+	if err := os.WriteFile(path, []byte(code+"\n"), 0o600); err != nil {
+		logger.WarnCF("whatsapp", "Pairing code write failed", map[string]any{"error": err.Error()})
+		return
+	}
+	logger.InfoCF("whatsapp", "Pairing code ready: enter it in WhatsApp > Linked devices > Link with phone number", map[string]any{"file": path})
 }
