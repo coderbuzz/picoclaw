@@ -546,6 +546,8 @@ type WhatsAppSettings struct {
 	MaxMediaBytes int64 `json:"max_media_bytes" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_MAX_MEDIA_BYTES"`
 	// PairPhone (digits, with country code) requests an 8-character pairing code instead of scanning the QR.
 	PairPhone string `json:"pair_phone" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_PAIR_PHONE"`
+	// NoReadReceipts stops marking handled messages as read (blue ticks).
+	NoReadReceipts bool `json:"no_read_receipts" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_NO_READ_RECEIPTS"`
 }
 
 type TelegramSettings struct {
