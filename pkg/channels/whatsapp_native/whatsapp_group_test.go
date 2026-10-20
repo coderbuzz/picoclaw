@@ -104,9 +104,11 @@ func TestSenderIDs(t *testing.T) {
 func TestStripBotMentions(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"@628000000000 hello", "hello"},
-		{"hello @100000000000001  there", "hello there"},
+		{"hello @100000000000001 there", "hello there"},
 		{"@628000000000 @100000000000001 hi @628111111111", "hi @628111111111"},
 		{"no mention", "no mention"},
+		{"@628000000000 list:\n- a\n- b", "list:\n- a\n- b"},
+		{"@6280000000001 keep", "@6280000000001 keep"},
 		{"@628000000000", ""},
 	}
 	for _, tt := range tests {

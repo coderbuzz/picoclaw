@@ -3,6 +3,7 @@
 package whatsapp
 
 import (
+	"regexp"
 	"strings"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -96,13 +97,14 @@ func senderIDs(sender, alt types.JID, counterpart func(types.JID) types.JID) []s
 	return ids
 }
 
-// stripBotMentions removes "@<user>" tokens of the bot's own identities (number
-// and LID) from content; mentions of other people are kept.
+// stripBotMentions removes whole "@<user>" tokens of the bot's own identities
+// (number and LID) plus one adjacent space; newlines and other mentions are kept.
 func stripBotMentions(content string, bots []types.JID) string {
 	for _, b := range bots {
 		if !b.IsEmpty() {
-			content = strings.ReplaceAll(content, "@"+b.User, "")
+			re := regexp.MustCompile(`(?m)(^|[ \t])@` + regexp.QuoteMeta(b.User) + `\b[ \t]?`)
+			content = re.ReplaceAllString(content, "$1")
 		}
 	}
-	return strings.Join(strings.Fields(content), " ")
+	return strings.TrimSpace(content)
 }
