@@ -3,6 +3,7 @@
 package whatsapp
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -111,4 +112,28 @@ func stripBotMentions(content string, bots []types.JID) string {
 		}
 	}
 	return strings.TrimSpace(content)
+}
+
+// prependQuoted adds the replied-to message as context, in the same format the Telegram channel uses.
+func prependQuoted(content string, ci *waE2E.ContextInfo, bots []types.JID) string {
+	q := ci.GetQuotedMessage()
+	quoted := strings.TrimSpace(messageText(q))
+	if im := inboundMediaOf(q); im != nil {
+		quoted = strings.TrimSpace("[" + im.kind + "] " + quoted)
+	}
+	if quoted == "" {
+		return content
+	}
+	role, author := "user", ci.GetParticipant()
+	if jid, err := types.ParseJID(author); err == nil {
+		author = jid.User
+	}
+	if isBotJID(ci.GetParticipant(), bots) {
+		role = "assistant"
+	}
+	header := fmt.Sprintf("[quoted %s message from %s]: %s", role, author, quoted)
+	if strings.TrimSpace(content) == "" {
+		return header
+	}
+	return header + "\n\n" + content
 }
