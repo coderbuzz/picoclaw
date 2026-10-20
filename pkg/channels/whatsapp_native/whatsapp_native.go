@@ -390,6 +390,8 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		}
 	}
 
+	content = prependQuoted(content, contextInfoOf(evt.Message), c.botJIDs())
+
 	metadata := make(map[string]string)
 	metadata["message_id"] = evt.Info.ID
 	if evt.Info.PushName != "" {
