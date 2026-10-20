@@ -25,6 +25,7 @@ import (
 const (
 	defaultMaxMediaBytes = 20 << 20
 	mediaTransferTimeout = 90 * time.Second
+	maxConcurrentMedia   = 2
 )
 
 // inboundMedia describes the downloadable attachment of an incoming message.
@@ -188,6 +189,27 @@ func waMediaType(kind string) whatsmeow.MediaType {
 	return whatsmeow.MediaDocument
 }
 
+// runMediaTask runs fn in a goroutine tracked by c.wg (same stopping protocol as reconnect),
+// at most maxConcurrentMedia at a time.
+func (c *WhatsAppNativeChannel) runMediaTask(fn func()) {
+	c.reconnectMu.Lock()
+	if c.stopping.Load() {
+		c.reconnectMu.Unlock()
+		return
+	}
+	c.wg.Add(1)
+	c.reconnectMu.Unlock()
+	go func() {
+		defer c.wg.Done()
+		select {
+		case c.mediaSem <- struct{}{}:
+			defer func() { <-c.mediaSem }()
+			fn()
+		case <-c.runCtx.Done():
+		}
+	}()
+}
+
 func (c *WhatsAppNativeChannel) maxMediaBytes() int64 {
 	if c.config.MaxMediaBytes > 0 {
 		return c.config.MaxMediaBytes
@@ -267,10 +289,17 @@ func (c *WhatsAppNativeChannel) SendMedia(ctx context.Context, msg bus.OutboundM
 	}
 
 	var ids []string
+	failed := false
 	for _, part := range msg.Parts {
 		path, meta, err := store.ResolveWithMeta(part.Ref)
 		if err != nil {
 			logger.ErrorCF("whatsapp", "Failed to resolve media ref", map[string]any{"ref": part.Ref, "error": err.Error()})
+			continue
+		}
+		// Stat first so an oversized file never reaches RAM.
+		if fi, serr := os.Stat(path); serr != nil || tooLarge(uint64(fi.Size()), c.maxMediaBytes()) {
+			logger.ErrorCF("whatsapp", "Media file missing or over max_media_bytes, skipped", nil)
+			failed = true
 			continue
 		}
 		data, err := os.ReadFile(path)
@@ -306,6 +335,9 @@ func (c *WhatsAppNativeChannel) SendMedia(ctx context.Context, msg bus.OutboundM
 			return ids, fmt.Errorf("whatsapp send media: %w", channels.ErrTemporary)
 		}
 		ids = append(ids, resp.ID)
+	}
+	if failed {
+		return ids, fmt.Errorf("whatsapp send media: part skipped: %w", channels.ErrSendFailed)
 	}
 	return ids, nil
 }

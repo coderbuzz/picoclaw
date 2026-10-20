@@ -3,7 +3,10 @@
 package whatsapp
 
 import (
+	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -116,5 +119,40 @@ func TestContextInfoOfAudioSticker(t *testing.T) {
 	if contextInfoOf(&waE2E.Message{AudioMessage: &waE2E.AudioMessage{ContextInfo: ci}}) != ci ||
 		contextInfoOf(&waE2E.Message{StickerMessage: &waE2E.StickerMessage{ContextInfo: ci}}) != ci {
 		t.Fatal("audio/sticker context info not found")
+	}
+}
+
+func TestRunMediaTaskBoundsConcurrency(t *testing.T) {
+	c := &WhatsAppNativeChannel{mediaSem: make(chan struct{}, maxConcurrentMedia)}
+	c.runCtx, c.runCancel = context.WithCancel(context.Background())
+	defer c.runCancel()
+	var cur, peak atomic.Int32
+	for i := 0; i < 6; i++ {
+		c.runMediaTask(func() {
+			n := cur.Add(1)
+			for {
+				p := peak.Load()
+				if n <= p || peak.CompareAndSwap(p, n) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			cur.Add(-1)
+		})
+	}
+	c.wg.Wait()
+	if peak.Load() != maxConcurrentMedia {
+		t.Fatalf("peak concurrency = %d, want %d", peak.Load(), maxConcurrentMedia)
+	}
+}
+
+func TestRunMediaTaskSkippedWhenStopping(t *testing.T) {
+	c := &WhatsAppNativeChannel{mediaSem: make(chan struct{}, 1)}
+	c.stopping.Store(true)
+	ran := false
+	c.runMediaTask(func() { ran = true })
+	c.wg.Wait()
+	if ran {
+		t.Fatal("task ran while stopping")
 	}
 }

@@ -201,7 +201,7 @@ PicoClaw can connect to WhatsApp in two ways:
 - Incoming images, stickers (webp), audio (including voice notes), video and documents are downloaded into the shared media store and passed to the agent like Telegram media, so vision and voice transcription work unchanged. Captions become the message text; a placeholder such as `[image]` or `[voice]` is appended.
 - `max_media_bytes` (default 20 MB) caps one download. Larger files are not downloaded and the placeholder says so (`[file: name, too large, not downloaded]`). A failed download is logged (no content, no number) and annotated `download failed`; the channel keeps running.
 - In groups, a media message without text follows the same gate as text: it must mention the bot or quote one of its messages.
-- Outgoing media (agent `send_media`): images are sent as images with caption, audio as audio (an `.ogg` named `voice*` becomes a voice note), everything else, including video, as a document with its filename and MIME type.
+- Outgoing media (agent `send_media`): images are sent as images with caption, audio as audio (an `.ogg` named `voice*` becomes a voice note), everything else, including video, as a document with its filename and MIME type. Files over `max_media_bytes` are skipped (logged, send reports failure). Media transfers run in the background, at most 2 at a time.
 
 If `session_store_path` is empty, the session is stored in `<workspace>/whatsapp/`. Run `picoclaw gateway`; on first run, scan the QR code printed in the terminal with WhatsApp → Linked Devices.
 

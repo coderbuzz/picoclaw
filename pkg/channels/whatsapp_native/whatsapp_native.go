@@ -58,7 +58,8 @@ type WhatsAppNativeChannel struct {
 	reconnectMu  sync.Mutex
 	reconnecting bool
 	stopping     atomic.Bool    // set once Stop begins; prevents new wg.Add calls
-	wg           sync.WaitGroup // tracks background goroutines (QR handler, reconnect)
+	wg           sync.WaitGroup // tracks background goroutines (QR handler, reconnect, media)
+	mediaSem     chan struct{}  // bounds concurrent media transfers (RAM)
 }
 
 // NewWhatsAppNativeChannel creates a WhatsApp channel that uses whatsmeow for connection.
@@ -81,6 +82,7 @@ func NewWhatsAppNativeChannel(
 		BaseChannel: base,
 		config:      cfg,
 		storePath:   storePath,
+		mediaSem:    make(chan struct{}, maxConcurrentMedia),
 	}
 	return c, nil
 }
@@ -419,40 +421,48 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 	}
 	senderID = sender.PlatformID
 
-	// Download only after the group and sender gates, so ignored messages cost nothing.
-	var mediaPaths []string
-	if att != nil {
-		c.mu.Lock()
-		client := c.client
-		c.mu.Unlock()
-		note := "download failed"
-		if client != nil {
-			var ref string
-			ref, note = c.fetchInboundMedia(client, att, channels.BuildMediaScope(c.Name(), chatID, messageID), messageID)
-			if ref != "" {
-				mediaPaths = append(mediaPaths, ref)
+	// Text is delivered inline; media is downloaded off the whatsmeow event loop so a slow
+	// transfer cannot stall later events (messages, receipts, disconnects).
+	deliver := func() {
+		var mediaPaths []string
+		if att != nil {
+			c.mu.Lock()
+			client := c.client
+			c.mu.Unlock()
+			note := "download failed"
+			if client != nil {
+				var ref string
+				ref, note = c.fetchInboundMedia(client, att, channels.BuildMediaScope(c.Name(), chatID, messageID), messageID)
+				if ref != "" {
+					mediaPaths = append(mediaPaths, ref)
+				}
 			}
+			content = strings.TrimSpace(content + "\n" + att.annotation(note))
 		}
-		content = strings.TrimSpace(content + "\n" + att.annotation(note))
+
+		logger.DebugCF(
+			"whatsapp",
+			"WhatsApp message received",
+			map[string]any{"sender_id": senderID, "content_preview": utils.Truncate(content, 50)},
+		)
+
+		inboundCtx := bus.InboundContext{
+			Channel:   "whatsapp",
+			ChatID:    chatID,
+			SenderID:  senderID,
+			MessageID: messageID,
+			Mentioned: mentioned,
+			ChatType:  peerKind,
+			Raw:       metadata,
+		}
+
+		c.HandleInboundContext(c.runCtx, chatID, content, mediaPaths, inboundCtx, sender)
 	}
-
-	logger.DebugCF(
-		"whatsapp",
-		"WhatsApp message received",
-		map[string]any{"sender_id": senderID, "content_preview": utils.Truncate(content, 50)},
-	)
-
-	inboundCtx := bus.InboundContext{
-		Channel:   "whatsapp",
-		ChatID:    chatID,
-		SenderID:  senderID,
-		MessageID: messageID,
-		Mentioned: mentioned,
-		ChatType:  peerKind,
-		Raw:       metadata,
+	if att == nil {
+		deliver()
+		return
 	}
-
-	c.HandleInboundContext(c.runCtx, chatID, content, mediaPaths, inboundCtx, sender)
+	c.runMediaTask(deliver)
 }
 
 // botJIDs returns the bot's own phone-number JID and LID (empty until paired).
