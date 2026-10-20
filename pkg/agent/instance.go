@@ -42,11 +42,13 @@ type AgentInstance struct {
 	ContextBuilder            *ContextBuilder
 	Tools                     *tools.ToolRegistry
 	Definition                AgentContextDefinition
-	Subagents                 *config.SubagentsConfig
-	SkillsFilter              []string
-	MCPServerAllowlist        map[string]struct{}
-	Candidates                []providers.FallbackCandidate
-	ImageCandidates           []providers.FallbackCandidate
+	// AllowReadPaths is the global read allowlist plus this agent's AGENT.md extras.
+	AllowReadPaths     []*regexp.Regexp
+	Subagents          *config.SubagentsConfig
+	SkillsFilter       []string
+	MCPServerAllowlist map[string]struct{}
+	Candidates         []providers.FallbackCandidate
+	ImageCandidates    []providers.FallbackCandidate
 
 	// Router is non-nil when model routing is configured and the light model
 	// was successfully resolved. It scores each incoming message and decides
@@ -112,8 +114,8 @@ func NewAgentInstance(
 	readRestrict := restrict && !defaults.AllowReadOutsideWorkspace
 
 	// Compile path whitelist patterns from config.
-	allowReadPaths := buildAllowReadPatterns(cfg)
-	allowWritePaths := compilePatterns(cfg.Tools.AllowWritePaths)
+	allowReadPaths := buildAgentAllowReadPatterns(cfg, definition)
+	allowWritePaths := buildAgentAllowWritePatterns(cfg, definition)
 	agentToolAllowlist := resolveAgentToolAllowlist(definition)
 	agentMCPServerAllowlist := resolveAgentMCPServerAllowlist(definition)
 
@@ -327,6 +329,7 @@ func NewAgentInstance(
 		Model:                     model,
 		Fallbacks:                 fallbacks,
 		Workspace:                 workspace,
+		AllowReadPaths:            allowReadPaths,
 		MaxIterations:             maxIter,
 		MaxTokens:                 maxTokens,
 		Temperature:               temperature,
@@ -672,6 +675,29 @@ func buildAllowReadPatterns(cfg *config.Config) []*regexp.Regexp {
 	}
 
 	return append(compiled, mediaDirPattern)
+}
+
+// buildAgentAllowReadPatterns returns the global read patterns plus the
+// agent's own AGENT.md allow_read_paths, so extra access stays with that agent.
+func buildAgentAllowReadPatterns(cfg *config.Config, definition AgentContextDefinition) []*regexp.Regexp {
+	compiled := buildAllowReadPatterns(cfg)
+	if definition.Agent != nil {
+		compiled = append(compiled, compilePatterns(definition.Agent.Frontmatter.AllowReadPaths)...)
+	}
+	return compiled
+}
+
+// buildAgentAllowWritePatterns is the write-side counterpart of buildAgentAllowReadPatterns.
+func buildAgentAllowWritePatterns(cfg *config.Config, definition AgentContextDefinition) []*regexp.Regexp {
+	var configured []string
+	if cfg != nil {
+		configured = cfg.Tools.AllowWritePaths
+	}
+	compiled := compilePatterns(configured)
+	if definition.Agent != nil {
+		compiled = append(compiled, compilePatterns(definition.Agent.Frontmatter.AllowWritePaths)...)
+	}
+	return compiled
 }
 
 func mediaTempDirPattern() string {

@@ -402,6 +402,16 @@ Even with `restrict_to_workspace: false`, the `exec` tool blocks these dangerous
 | `tools.allow_write_paths` | string[] | `[]` | Additional paths allowed for writing outside workspace |
 | `tools.message.media_enabled` | bool | `false` | Allows the `message` tool to attach local media files by path. This is separate from `tools.send_file.enabled`; enable it only when unified text/media/caption delivery is intended. |
 
+A single agent can get extra paths through its `AGENT.md` frontmatter. These regexes are added to the global lists for that agent only (file tools, `exec` guard, `message`/`send_file`/`load_image` media); other agents keep the global lists. `exec` checks paths against the read list.
+
+```yaml
+---
+name: main
+allow_read_paths: ["^/srv/example/archive(/|$)", "^/srv/example/jobs(/|$)"]
+allow_write_paths: ["^/srv/example/jobs(/|$)"]
+---
+```
+
 ### Read File Mode
 
 `read_file` has two mutually exclusive implementations selected by config. PicoClaw registers exactly one of them at startup:

@@ -112,7 +112,7 @@ func registerSharedTools(
 	registry *AgentRegistry,
 	provider providers.LLMProvider,
 ) {
-	allowReadPaths := buildAllowReadPatterns(cfg)
+	globalAllowReadPaths := buildAllowReadPatterns(cfg)
 	var ttsProvider tts.TTSProvider
 	if cfg.Tools.IsToolEnabled("send_tts") {
 		ttsProvider = tts.DetectTTS(cfg)
@@ -125,6 +125,10 @@ func registerSharedTools(
 		agent, ok := registry.GetAgent(agentID)
 		if !ok {
 			continue
+		}
+		allowReadPaths := globalAllowReadPaths
+		if agent.AllowReadPaths != nil {
+			allowReadPaths = agent.AllowReadPaths
 		}
 
 		if cfg.Tools.IsToolEnabled("web") {
