@@ -22,7 +22,7 @@ class GroupAgentsTest(unittest.TestCase):
                 "dispatch": {"rules": [{"name": "dm", "agent": "main", "when": {"channel": "whatsapp", "sender": "owner"}}]},
             },
             "session": {"identity_links": {"owner": ["1"]}},
-            "channels": {"whatsapp": {"group_allow_from": []}},
+            "channel_list": {"whatsapp": {"settings": {"group_policy": "allowlist", "group_allow_from": []}}},
         }
         self.cfg_path = os.path.join(self.pico, "config.json")
         with open(self.cfg_path, "w") as f:
@@ -50,7 +50,8 @@ class GroupAgentsTest(unittest.TestCase):
         self.run_tool("new", "club", G1)
         c = self.cfg()
         self.assertEqual({a["id"] for a in c["agents"]["list"]}, {"main", "club", "club-admin", "club-staff"})
-        self.assertIn(G1, c["channels"]["whatsapp"]["group_allow_from"])
+        self.assertIn(G1, c["channel_list"]["whatsapp"]["settings"]["group_allow_from"])
+        self.assertNotIn("channels", c)
         # owner rule must win over the group catch-all, which must win over DM rules
         self.assertEqual([r["agent"] for r in c["agents"]["dispatch"]["rules"]], ["club-admin", "club", "main"])
         self.assertIn("profil club sudah lengkap", self.run_tool("new", "club", G1))
