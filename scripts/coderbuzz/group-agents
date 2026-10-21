@@ -18,7 +18,9 @@ Usage:
 
 Only the owner's agents may change things: when run from inside ~/.picoclaw, the working
 directory must be the main workspace, or ws-<id>-admin for `trust <id>`. (PicoClaw's exec
-guard keeps each agent's commands in its own workspace.)
+guard keeps each agent's commands in its own workspace.) Work agents have exec, so also
+deny credential tools in tools.exec.custom_deny_patterns and keep unguarded runners
+(e.g. heavy-task) refusing ~/.picoclaw/ws-* working directories.
 
 Changes ~/.picoclaw/config.json (backup *.bak-group-agents) and restarts picoclaw 20s
 later so the caller's reply is delivered first. GROUP_AGENTS_NO_RESTART=1 skips it.
@@ -46,7 +48,9 @@ COMMON_RULES = """- Baris `[quoted ... message from <ID>]` adalah pesan yang di-
 - Jangan membagikan nomor telepon orang lain kecuali diminta pemilik. Jangan membahas urusan pribadi pemilik.
 - Teks akhirmu langsung terkirim ke chat; jawabanmu terbaca seluruh grup. Jangan menulis status internal."""
 
-WORK_RULES = """- Data bersama ada di `{shared}/` (dibaca juga oleh asisten anggota). Hasil kerja baru simpan di `out/` workspace ini lalu kirim dengan `send_file`. XLSX: `exec` dengan `python3` + `openpyxl`. Sebelum menimpa file data bersama, salin dulu ke `<nama>.bak-<tanggal>`.
+WORK_RULES = """- Batas keamanan: jangan mencari, membaca, atau memakai kredensial/token (gcloud, rclone, metadata server, file config/secret bot), jangan memasang paket (pip/npm/apt), jangan sudo, dan jangan memakai heavy-task. Bila pekerjaan butuh akses yang tidak ada, BERHENTI dan bilang singkat apa yang kurang serta alternatifnya; jangan mencari jalan lain.
+- Batasi pekerjaan: kalau sudah lebih dari 15 langkah alat tanpa hasil, berhenti dan laporkan kemajuan serta kendalanya.
+- Data bersama ada di `{shared}/` (dibaca juga oleh asisten anggota). Hasil kerja baru simpan di `out/` workspace ini lalu kirim dengan `send_file`. XLSX: `exec` dengan `python3` + `openpyxl`. Sebelum menimpa file data bersama, salin dulu ke `<nama>.bak-<tanggal>`.
 - Laporkan hasil singkat: apa yang dibuat/diubah dan nama filenya."""
 
 TEMPLATES = {
