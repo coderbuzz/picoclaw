@@ -321,6 +321,17 @@ type AgentConfig struct {
 	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
 	// IdleResetMinutes clears a session's history when its last message is older than this (0 = never).
 	IdleResetMinutes int `json:"idle_reset_minutes,omitempty"`
+	// Isolation runs this agent's exec tool inside bubblewrap (Linux only); it overrides the global isolation for this agent.
+	Isolation *AgentIsolationConfig `json:"isolation,omitempty"`
+}
+
+// AgentIsolationConfig is the per-agent exec sandbox: system paths read-only, the agent workspace
+// read-write, plus ExposePaths. The instance root, config and other workspaces are never mounted.
+type AgentIsolationConfig struct {
+	Enabled     bool         `json:"enabled,omitempty"`
+	ExposePaths []ExposePath `json:"expose_paths,omitempty"`
+	// Network keeps the host network when true; default false unshares it.
+	Network bool `json:"network,omitempty"`
 }
 
 type SubagentsConfig struct {

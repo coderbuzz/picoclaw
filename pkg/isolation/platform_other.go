@@ -3,6 +3,7 @@
 package isolation
 
 import (
+	"fmt"
 	"os/exec"
 
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -19,4 +20,8 @@ func postStartPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig,
 }
 
 func cleanupPendingPlatformResources(cmd *exec.Cmd) {
+}
+
+func prepareAgentCommand(cmd *exec.Cmd, agent *config.AgentIsolationConfig, workspace string) error {
+	return fmt.Errorf("per-agent isolation is only supported on linux")
 }

@@ -162,6 +162,9 @@ func NewAgentInstance(
 			logger.ErrorCF("agent", "Failed to initialize exec tool; continuing without exec",
 				map[string]any{"error": err.Error()})
 		} else {
+			if agentCfg != nil {
+				execTool.SetAgentIsolation(agentCfg.Isolation)
+			}
 			toolsRegistry.Register(execTool)
 		}
 	}
