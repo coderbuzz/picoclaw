@@ -20,7 +20,9 @@ import (
 
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -129,6 +131,10 @@ func (c *WhatsAppNativeChannel) Start(ctx context.Context) error {
 		return fmt.Errorf("get device store: %w", err)
 	}
 
+	if c.config.DeviceOS != "" {
+		store.SetOSInfo(c.config.DeviceOS, [3]uint32{10, 15, 7})
+		store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_CHROME.Enum()
+	}
 	client := whatsmeow.NewClient(deviceStore, waLogger)
 
 	// Create runCtx/runCancel BEFORE registering event handler and starting
@@ -582,7 +588,11 @@ func parseJID(s string) (types.JID, error) {
 // <storePath>/pair-code.txt (0600); the code itself is not logged.
 func (c *WhatsAppNativeChannel) requestPairCode(client *whatsmeow.Client) {
 	phone := strings.TrimPrefix(strings.TrimSpace(c.config.PairPhone), "+")
-	code, err := client.PairPhone(c.runCtx, phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	osName := "Linux"
+	if c.config.DeviceOS != "" {
+		osName = c.config.DeviceOS
+	}
+	code, err := client.PairPhone(c.runCtx, phone, true, whatsmeow.PairClientChrome, "Chrome ("+osName+")")
 	if err != nil {
 		logger.WarnCF("whatsapp", "Pairing code request failed", map[string]any{"error": err.Error()})
 		return

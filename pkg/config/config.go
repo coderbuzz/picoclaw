@@ -579,6 +579,9 @@ type WhatsAppSettings struct {
 	PairPhone string `json:"pair_phone" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_PAIR_PHONE"`
 	// NoReadReceipts stops marking handled messages as read (blue ticks).
 	NoReadReceipts bool `json:"no_read_receipts" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_NO_READ_RECEIPTS"`
+	// DeviceOS (e.g. "Mac OS") makes the linked device register as Chrome on that OS instead of "whatsmeow".
+	// Sent only while pairing: re-pair to apply.
+	DeviceOS string `json:"device_os" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_DEVICE_OS"`
 }
 
 type TelegramSettings struct {
