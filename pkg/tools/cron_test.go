@@ -1281,3 +1281,40 @@ func TestCronTool_ExecuteJobReturnsErrorWithoutPublish(t *testing.T) {
 		t.Fatalf("unexpected publish on error path: %q", executor.publishedResp)
 	}
 }
+
+func TestCronTool_IsolatedAgentCannotScheduleCommand(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.List = []config.AgentConfig{
+		{ID: "Boxed", Isolation: &config.AgentIsolationConfig{Enabled: true}},
+		{ID: "plain"},
+		{ID: "off", Isolation: &config.AgentIsolationConfig{}},
+	}
+	tool := newTestCronToolWithConfig(t, cfg)
+	run := func(agent string, args map[string]any) *ToolResult {
+		ctx := WithToolContext(context.Background(), "cli", "direct")
+		ctx = WithToolSessionContext(ctx, agent, "sess", nil)
+		return tool.Execute(ctx, args)
+	}
+	add := map[string]any{"action": "add", "message": "m", "command": "df -h", "at_seconds": float64(60)}
+
+	if r := run("boxed", add); !r.IsError || !strings.Contains(r.ForLLM, "isolated agents") {
+		t.Fatalf("isolated agent add: want error, got %+v", r)
+	}
+	for _, a := range []string{"plain", "off"} {
+		if r := run(a, add); r.IsError {
+			t.Fatalf("agent %s add command: %s", a, r.ForLLM)
+		}
+	}
+	// reminders without a command stay allowed for isolated agents
+	if r := run("boxed", map[string]any{"action": "add", "message": "m", "at_seconds": float64(60)}); r.IsError {
+		t.Fatalf("isolated agent reminder: %s", r.ForLLM)
+	}
+	jobs := tool.cronService.ListJobs(true)
+	if len(jobs) == 0 {
+		t.Fatal("expected jobs")
+	}
+	upd := map[string]any{"action": "update", "job_id": jobs[0].ID, "command": "id"}
+	if r := run("boxed", upd); !r.IsError || !strings.Contains(r.ForLLM, "isolated agents") {
+		t.Fatalf("isolated agent update: want error, got %+v", r)
+	}
+}

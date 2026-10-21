@@ -266,4 +266,7 @@ That path gives the fastest overview of the configuration model, runtime flow, a
 - `network` defaults to `false` (`--unshare-net`, which also hides the cloud metadata endpoint).
 - Fail closed: no `bwrap`, or a working directory / command outside the plan, is an error. Absolute path
   arguments are never auto-mounted for these agents.
-- Not covered: tools other than `exec` (file tools keep their own workspace guard), and cron-created exec tools.
+- Cron: scheduled `command` jobs run through the shared cron tool's own unsandboxed exec, so an isolated agent
+  may not add or update a job with a `command` (error; reminders without a command still work). Fail closed,
+  keyed on the turn's agent ID. Non-isolated agents are unchanged.
+- Not covered: tools other than `exec` (file tools keep their own workspace guard).

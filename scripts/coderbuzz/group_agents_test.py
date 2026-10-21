@@ -54,6 +54,12 @@ class GroupAgentsTest(unittest.TestCase):
         # owner rule must win over the group catch-all, which must win over DM rules
         self.assertEqual([r["agent"] for r in c["agents"]["dispatch"]["rules"]], ["club-admin", "club", "main"])
         self.assertIn("profil club sudah lengkap", self.run_tool("new", "club", G1))
+        by_id = {a["id"]: a for a in c["agents"]["list"]}
+        shared = self.ws("ws-club")
+        iso = {"enabled": True, "expose_paths": [{"source": shared, "target": shared, "mode": "rw"}]}
+        self.assertEqual(by_id["club-admin"]["isolation"], iso)
+        self.assertEqual(by_id["club-staff"]["isolation"], iso)
+        self.assertNotIn("isolation", by_id["club"])
 
         # the owner's group agent grants trust from a quoted LID
         self.run_tool("trust", "club", "add", LID, "Budi", cwd=self.ws("ws-club-admin"))
@@ -73,6 +79,20 @@ class GroupAgentsTest(unittest.TestCase):
         c = self.cfg()
         self.assertNotIn("trusted-" + PN, c["session"]["identity_links"])
         self.assertFalse(any(r["agent"] == "club-staff" for r in c["agents"]["dispatch"]["rules"]))
+
+    def test_new_repairs_isolation_without_overwriting(self):
+        self.run_tool("new", "club", G1)
+        c = self.cfg()
+        by_id = {a["id"]: a for a in c["agents"]["list"]}
+        by_id["club-admin"].pop("isolation")  # profile from before isolation existed
+        by_id["club-staff"]["isolation"] = {"enabled": True, "network": True}  # hand-tuned
+        with open(self.cfg_path, "w") as f:
+            json.dump(c, f)
+        self.assertIn("isolasi club-admin", self.run_tool("new", "club"))
+        by_id = {a["id"]: a for a in self.cfg()["agents"]["list"]}
+        self.assertTrue(by_id["club-admin"]["isolation"]["enabled"])
+        self.assertEqual(by_id["club-staff"]["isolation"], {"enabled": True, "network": True})
+        self.assertIn("sudah lengkap", self.run_tool("new", "club"))
 
     def test_only_owner_agents_change_trust(self):
         self.run_tool("new", "club", G1)
