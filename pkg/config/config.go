@@ -323,6 +323,15 @@ type AgentConfig struct {
 	IdleResetMinutes int `json:"idle_reset_minutes,omitempty"`
 	// Isolation runs this agent's exec tool inside bubblewrap (Linux only); it overrides the global isolation for this agent.
 	Isolation *AgentIsolationConfig `json:"isolation,omitempty"`
+	// Google enables the built-in google tool (Sheets/Docs/Slides/Drive via the VM service account) for this agent; nil = tool not registered.
+	Google *AgentGoogleConfig `json:"google,omitempty"`
+}
+
+// AgentGoogleConfig limits what the google tool may touch: Files are file IDs (["*"] = anything the
+// service account can see), Write allows the mutating actions.
+type AgentGoogleConfig struct {
+	Files []string `json:"files"`
+	Write bool     `json:"write,omitempty"`
 }
 
 // AgentIsolationConfig is the per-agent exec sandbox: system paths read-only, the agent workspace
