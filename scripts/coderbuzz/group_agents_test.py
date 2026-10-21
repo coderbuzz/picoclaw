@@ -8,12 +8,14 @@ import unittest
 
 TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "group-agents")
 G1, G2 = "120000000000000001@g.us", "120000000000000002@g.us"
+PN, LID = "6281200000001", "900000000000001"
 
 
 class GroupAgentsTest(unittest.TestCase):
     def setUp(self):
         self.home = tempfile.mkdtemp()
-        os.makedirs(os.path.join(self.home, ".picoclaw/workspace/whatsapp"))
+        self.pico = os.path.join(self.home, ".picoclaw")
+        os.makedirs(os.path.join(self.pico, "workspace/whatsapp"))
         cfg = {
             "agents": {
                 "list": [{"id": "main", "model": {"primary": "m"}}],
@@ -22,50 +24,63 @@ class GroupAgentsTest(unittest.TestCase):
             "session": {"identity_links": {"owner": ["1"]}},
             "channels": {"whatsapp": {"group_allow_from": []}},
         }
-        self.cfg_path = os.path.join(self.home, ".picoclaw/config.json")
-        json.dump(cfg, open(self.cfg_path, "w"))
-        db = sqlite3.connect(os.path.join(self.home, ".picoclaw/workspace/whatsapp/store.db"))
+        self.cfg_path = os.path.join(self.pico, "config.json")
+        with open(self.cfg_path, "w") as f:
+            json.dump(cfg, f)
+        db = sqlite3.connect(os.path.join(self.pico, "workspace/whatsapp/store.db"))
         db.execute("create table whatsmeow_lid_map (lid text, pn text)")
-        db.execute("insert into whatsmeow_lid_map values ('900000000000001', '6281200000001')")
+        db.execute("insert into whatsmeow_lid_map values (?, ?)", (LID, PN))
         db.commit()
+        db.close()
 
-    def run_tool(self, *args, ok=True):
+    def run_tool(self, *args, ok=True, cwd=None):
         env = dict(os.environ, HOME=self.home, GROUP_AGENTS_NO_RESTART="1")
-        p = subprocess.run([TOOL, *args], env=env, capture_output=True, text=True)
+        p = subprocess.run([TOOL, *args], env=env, capture_output=True, text=True, cwd=cwd or self.home)
         self.assertEqual(p.returncode == 0, ok, p.stdout + p.stderr)
-        return p.stdout
+        return p.stdout + p.stderr
 
     def cfg(self):
-        return json.load(open(self.cfg_path))
+        with open(self.cfg_path) as f:
+            return json.load(f)
+
+    def ws(self, name):
+        return os.path.join(self.pico, name)
 
     def test_profile_trust_flow(self):
         self.run_tool("new", "club", G1)
         c = self.cfg()
-        self.assertEqual({a["id"] for a in c["agents"]["list"]}, {"main", "club", "club-admin"})
+        self.assertEqual({a["id"] for a in c["agents"]["list"]}, {"main", "club", "club-admin", "club-staff"})
         self.assertIn(G1, c["channels"]["whatsapp"]["group_allow_from"])
-        rules = c["agents"]["dispatch"]["rules"]
         # owner rule must win over the group catch-all, which must win over DM rules
-        self.assertEqual([r["agent"] for r in rules], ["club-admin", "club", "main"])
-        self.assertTrue(os.path.exists(os.path.join(self.home, ".picoclaw/ws-club-admin/AGENT.md")))
+        self.assertEqual([r["agent"] for r in c["agents"]["dispatch"]["rules"]], ["club-admin", "club", "main"])
+        self.assertIn("profil club sudah lengkap", self.run_tool("new", "club", G1))
 
-        self.run_tool("trust", "club", "add", "0812-0000-0001", "Budi")
-        self.run_tool("trust", "club", "add", "+6281200000001", "Budi")  # idempotent
+        # the owner's group agent grants trust from a quoted LID
+        self.run_tool("trust", "club", "add", LID, "Budi", cwd=self.ws("ws-club-admin"))
+        self.run_tool("trust", "club", "add", "0812-0000-0001", "Budi", cwd=self.ws("workspace"))  # same person, idempotent
         c = self.cfg()
-        self.assertEqual(c["session"]["identity_links"]["trusted-6281200000001"][2], "900000000000001")
-        senders = [r["when"].get("sender") for r in c["agents"]["dispatch"]["rules"]]
-        self.assertEqual(senders.count("trusted-6281200000001"), 1)
-        self.assertIn("6281200000001 Budi", self.run_tool("trust", "club", "list"))
+        self.assertEqual(c["session"]["identity_links"]["trusted-" + PN], [PN, PN + "@s.whatsapp.net", LID, LID + "@lid"])
+        staff = [r for r in c["agents"]["dispatch"]["rules"] if r["agent"] == "club-staff"]
+        self.assertEqual(len(staff), 1)
+        self.assertIn(PN + " Budi", self.run_tool("trust", "club", "list"))
 
         # a group added later inherits owner + trusted rules
         self.run_tool("add-group", "club", G2)
-        rules = self.cfg()["agents"]["dispatch"]["rules"]
-        g2 = [r for r in rules if r["when"].get("chat") == "group:" + G2]
-        self.assertEqual([r["agent"] for r in g2], ["club-admin", "club-admin", "club"])
+        g2 = [r["agent"] for r in self.cfg()["agents"]["dispatch"]["rules"] if r["when"].get("chat") == "group:" + G2]
+        self.assertEqual(g2, ["club-admin", "club-staff", "club"])
 
         self.run_tool("trust", "club", "remove", "081200000001")
         c = self.cfg()
-        self.assertNotIn("trusted-6281200000001", c["session"]["identity_links"])
-        self.assertFalse(any(r["when"].get("sender", "").startswith("trusted-") for r in c["agents"]["dispatch"]["rules"]))
+        self.assertNotIn("trusted-" + PN, c["session"]["identity_links"])
+        self.assertFalse(any(r["agent"] == "club-staff" for r in c["agents"]["dispatch"]["rules"]))
+
+    def test_only_owner_agents_change_trust(self):
+        self.run_tool("new", "club", G1)
+        self.run_tool("new", "other", G2)
+        for ws in ("ws-club-staff", "ws-club", "ws-other-admin"):
+            self.run_tool("trust", "club", "add", PN, cwd=self.ws(ws), ok=False)
+        self.run_tool("new", "evil", cwd=self.ws("ws-club-admin"), ok=False)
+        self.run_tool("trust", "club", "list", cwd=self.ws("ws-club-staff"))  # read-only is fine
 
     def test_rejects_bad_input(self):
         self.run_tool("new", "Bad Id", G1, ok=False)
