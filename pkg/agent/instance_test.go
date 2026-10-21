@@ -1373,3 +1373,19 @@ func TestNewAgentInstance_ExplicitEmptyToolsFieldBlocksAllTools(t *testing.T) {
 		})
 	}
 }
+
+func TestNewAgentInstance_GoogleToolOnlyWithAgentConfig(t *testing.T) {
+	cfg := &config.Config{Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
+		Workspace: t.TempDir(), ModelName: "test-model", MaxToolIterations: 5,
+	}}}
+	plain := NewAgentInstance(&config.AgentConfig{ID: "plain"}, &cfg.Agents.Defaults, cfg, &mockProvider{})
+	if _, ok := plain.Tools.Get("google"); ok {
+		t.Fatal("google tool registered without agents.list[].google")
+	}
+	withG := NewAgentInstance(
+		&config.AgentConfig{ID: "g", Google: &config.AgentGoogleConfig{Files: []string{"*"}}},
+		&cfg.Agents.Defaults, cfg, &mockProvider{})
+	if _, ok := withG.Tools.Get("google"); !ok {
+		t.Fatal("google tool missing for agent with google config")
+	}
+}

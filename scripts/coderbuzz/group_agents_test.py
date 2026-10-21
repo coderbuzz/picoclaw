@@ -60,6 +60,9 @@ class GroupAgentsTest(unittest.TestCase):
         self.assertEqual(by_id["club-admin"]["isolation"], iso)
         self.assertEqual(by_id["club-staff"]["isolation"], iso)
         self.assertNotIn("isolation", by_id["club"])
+        for role in ("admin", "staff"):  # google tool is listed, but its per-agent config is never filled in
+            self.assertIn(" google,", open(os.path.join(self.ws("ws-club-" + role), "AGENT.md")).read())
+            self.assertNotIn("google", by_id["club-" + role])
 
         # the owner's group agent grants trust from a quoted LID
         self.run_tool("trust", "club", "add", LID, "Budi", cwd=self.ws("ws-club-admin"))
