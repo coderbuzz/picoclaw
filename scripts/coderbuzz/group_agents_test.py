@@ -60,9 +60,10 @@ class GroupAgentsTest(unittest.TestCase):
         self.assertEqual(by_id["club-admin"]["isolation"], iso)
         self.assertEqual(by_id["club-staff"]["isolation"], iso)
         self.assertNotIn("isolation", by_id["club"])
-        for role in ("admin", "staff"):  # google tool is listed, but its per-agent config is never filled in
+        for role in ("admin", "staff"):
             self.assertIn(" google,", open(os.path.join(self.ws("ws-club-" + role), "AGENT.md")).read())
-            self.assertNotIn("google", by_id["club-" + role])
+            self.assertEqual(by_id["club-" + role]["google"], {"files": ["*"], "write": True})
+        self.assertNotIn("google", by_id["club"])
 
         # the owner's group agent grants trust from a quoted LID
         self.run_tool("trust", "club", "add", LID, "Budi", cwd=self.ws("ws-club-admin"))
@@ -89,12 +90,18 @@ class GroupAgentsTest(unittest.TestCase):
         by_id = {a["id"]: a for a in c["agents"]["list"]}
         by_id["club-admin"].pop("isolation")  # profile from before isolation existed
         by_id["club-staff"]["isolation"] = {"enabled": True, "network": True}  # hand-tuned
+        by_id["club-staff"].pop("google")
+        by_id["club-admin"]["google"] = {"files": ["1AbC"]}  # hand-tuned
         with open(self.cfg_path, "w") as f:
             json.dump(c, f)
-        self.assertIn("isolasi club-admin", self.run_tool("new", "club"))
+        out = self.run_tool("new", "club")
+        self.assertIn("isolation club-admin", out)
+        self.assertIn("google club-staff", out)
         by_id = {a["id"]: a for a in self.cfg()["agents"]["list"]}
         self.assertTrue(by_id["club-admin"]["isolation"]["enabled"])
         self.assertEqual(by_id["club-staff"]["isolation"], {"enabled": True, "network": True})
+        self.assertEqual(by_id["club-staff"]["google"], {"files": ["*"], "write": True})
+        self.assertEqual(by_id["club-admin"]["google"], {"files": ["1AbC"]})
         self.assertIn("sudah lengkap", self.run_tool("new", "club"))
 
     def test_only_owner_agents_change_trust(self):
