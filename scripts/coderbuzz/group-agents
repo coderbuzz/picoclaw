@@ -136,6 +136,17 @@ def load():
         return json.load(f)
 
 
+# Restarting mid-turn drops that turn's reply: wait (max 10 min) until every turn started
+# since the service came up has ended.
+RESTART_WHEN_IDLE = """since=$(systemctl --user show picoclaw -p ActiveEnterTimestamp --value)
+for i in $(seq 120); do
+  log=$(journalctl --user -u picoclaw --since "$since" -o cat)
+  [ "$(printf '%s' "$log" | grep -c agent.turn.start)" -le "$(printf '%s' "$log" | grep -c agent.turn.end)" ] && break
+  sleep 5
+done
+systemctl --user restart picoclaw"""
+
+
 def save(cfg):
     shutil.copy2(CFG, CFG + ".bak-group-agents")
     tmp = CFG + ".tmp"
@@ -145,12 +156,15 @@ def save(cfg):
     os.replace(tmp, CFG)
     if os.environ.get("GROUP_AGENTS_NO_RESTART"):
         return
-    # delayed so the agent running this command can still deliver its reply
-    subprocess.run(
-        ["systemd-run", "--user", "--on-active=20s", "--quiet", "systemctl", "--user", "restart", "picoclaw"],
-        check=True,
+    # delayed so the agent running this command can still deliver its reply; one pending restart at a time
+    r = subprocess.run(
+        ["systemd-run", "--user", "--unit=picoclaw-restart", "--collect", "--on-active=20s", "--quiet",
+         "sh", "-c", RESTART_WHEN_IDLE],
+        capture_output=True,
     )
-    print("picoclaw restart dalam 20 detik")
+    if r.returncode and b"already" not in r.stderr:
+        die("gagal menjadwalkan restart: " + r.stderr.decode(errors="replace").strip())
+    print("picoclaw restart setelah tidak ada giliran berjalan (paling cepat 20 detik)")
 
 
 def authorize(admin_of=None):
