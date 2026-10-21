@@ -238,7 +238,10 @@ def attach_group(cfg, pid, jid):
     new += [staff_rule(pid, chat, k, k[len(TRUST):]) for k in trusted_keys(cfg, pid)]
     new.append({"name": f"{pid} {chat[6:18]}", "agent": pid, "when": {"channel": "whatsapp", "chat": chat}})
     rs[0:0] = new
-    allow = cfg.setdefault("channels", {}).setdefault("whatsapp", {}).setdefault("group_allow_from", [])
+    # current configs keep channel settings under channel_list.<name>.settings; "channels" is the legacy layout
+    wa = cfg["channel_list"].setdefault("whatsapp", {}).setdefault("settings", {}) if "channel_list" in cfg \
+        else cfg.setdefault("channels", {}).setdefault("whatsapp", {})
+    allow = wa.setdefault("group_allow_from", [])
     if isinstance(allow, list) and jid not in allow:
         allow.append(jid)
 
