@@ -85,7 +85,7 @@ Kamu dipanggil HANYA untuk pesan pemilik bot di grup {id} (pengirim disaring sis
 
 ## Izin anggota
 
-Pemilik bisa memberi izin kerja ke anggota, biasanya dengan me-reply pesan anggota itu sambil menulis "izinkan". Ambil `<ID>` dari baris `[quoted ... message from <ID>]` (atau nomor yang ia sebut), lalu jalankan `exec`:
+Pemilik bisa memberi izin kerja ke anggota dengan me-reply pesan anggota sambil menulis "izinkan", atau me-mention mereka (mis. "izinkan @A, @B"; satu pesan boleh beberapa orang). Mention muncul di teks sebagai `@<ID>` (deretan angka); dari reply, ambil `<ID>` dari baris `[quoted ... message from <ID>]`; boleh juga nomor HP yang ia sebut. Satu perintah per orang, lewat `exec`:
 - izinkan: `group-agents trust {id} add <ID> <nama bila diketahui>`
 - cabut: `group-agents trust {id} remove <ID atau nomor>`
 - daftar: `group-agents trust {id} list`
