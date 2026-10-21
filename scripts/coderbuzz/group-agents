@@ -48,7 +48,8 @@ COMMON_RULES = """- Baris `[quoted ... message from <ID>]` adalah pesan yang di-
 - Jangan membagikan nomor telepon orang lain kecuali diminta pemilik. Jangan membahas urusan pribadi pemilik.
 - Teks akhirmu langsung terkirim ke chat; jawabanmu terbaca seluruh grup. Jangan menulis status internal."""
 
-WORK_RULES = """- Batas keamanan: jangan mencari, membaca, atau memakai kredensial/token (gcloud, rclone, metadata server, file config/secret bot), jangan memasang paket (pip/npm/apt), jangan sudo, dan jangan memakai heavy-task. Bila pekerjaan butuh akses yang tidak ada, BERHENTI dan bilang singkat apa yang kurang serta alternatifnya; jangan mencari jalan lain.
+WORK_RULES = """- `exec` berjalan di sandbox: hanya workspace ini dan data anggota yang terlihat, tanpa internet.
+- Batas keamanan: jangan mencari, membaca, atau memakai kredensial/token (gcloud, rclone, metadata server, file config/secret bot), jangan memasang paket (pip/npm/apt), jangan sudo, dan jangan memakai heavy-task. Bila pekerjaan butuh akses yang tidak ada, BERHENTI dan bilang singkat apa yang kurang serta alternatifnya; jangan mencari jalan lain.
 - Batasi pekerjaan: kalau sudah lebih dari 15 langkah alat tanpa hasil, berhenti dan laporkan kemajuan serta kendalanya.
 - Data bersama ada di `{shared}/` (dibaca juga oleh asisten anggota). Hasil kerja baru simpan di `out/` workspace ini lalu kirim dengan `send_file`. XLSX: `exec` dengan `python3` + `openpyxl`. Sebelum menimpa file data bersama, salin dulu ke `<nama>.bak-<tanggal>`.
 - Laporkan hasil singkat: apa yang dibuat/diubah dan nama filenya."""
@@ -241,6 +242,11 @@ def attach_group(cfg, pid, jid):
         allow.append(jid)
 
 
+def isolation_for(shared):
+    """Sandbox for a work agent's exec: its own workspace plus the members' shared data, no network."""
+    return {"enabled": True, "expose_paths": [{"source": shared, "target": shared, "mode": "rw"}]}
+
+
 def cmd_new(cfg, pid, jids):
     authorize()
     if not ID_RE.match(pid) or pid.endswith(("-admin", "-staff")):
@@ -261,12 +267,18 @@ def cmd_new(cfg, pid, jids):
                 f.write(TEMPLATES[role].format(id=pid, shared=shared, shared_re=re.escape(shared)))
             created.append(md)
         if aid in by_id:
+            entry = by_id[aid]
+            if role and "isolation" not in entry:  # repairs profiles made before isolation existed
+                entry["isolation"] = isolation_for(shared)
+                created.append("isolasi " + aid)
             continue
         src = by_id.get(pid + ("-admin" if role == "-staff" else role)) or (by_id.get(tuned + role) if tuned else None)
         model = (src or (agents(cfg)[0] if agents(cfg) else {})).get("model")
         entry = {"id": aid, "workspace": ws.replace(HOME, "~", 1), "idle_reset_minutes": IDLE_RESET_MINUTES}
         if model:
             entry["model"] = model
+        if role:
+            entry["isolation"] = isolation_for(shared)
         agents(cfg).append(entry)
         by_id[aid] = entry
         created.append("agen " + aid)

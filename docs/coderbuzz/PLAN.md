@@ -26,6 +26,7 @@ isi chat, atau nama orang di repo ini (kode, tes, PR, commit). Pakai contoh fikt
 | S5 | (opsional, keputusan pemilik nanti) konteks pasif grup: simpan pesan grup non-trigger ke sesi tanpa memicu balasan | |
 | S6 | Path baca/tulis ekstra per agen lewat frontmatter AGENT.md (`allow_read_paths`/`allow_write_paths`), ditambahkan ke global hanya untuk agen itu | PR s6-agent-paths |
 | S7 | Isolasi bubblewrap per agen (`agents.list[].isolation`): exec agen terisolasi, tanpa instance root/HOME asli, jaringan mati default | PR s7-agent-isolation |
+| S8 | Lanjutan S7: `group-agents new` menulis `isolation` untuk profil -admin/-staff (idempoten, memperbaiki profil lama); agen terisolasi tidak boleh membuat/mengubah job cron ber-`command` | PR s8-isolation-followups |
 
 ### S2 — kriteria selesai
 1. `NewWhatsAppNativeChannel` memasang `channels.WithGroupTrigger(...)` dari config channel; `handleIncoming` memakai

@@ -13,6 +13,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/constants"
 	"github.com/sipeed/picoclaw/pkg/cron"
+	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -24,6 +25,8 @@ type JobExecutor interface {
 	PublishResponseIfNeeded(ctx context.Context, channel, chatID, sessionKey, response string)
 }
 
+const errIsolatedCronCommand = "isolated agents cannot schedule command jobs (scheduled commands run outside the sandbox)"
+
 // CronTool provides scheduling capabilities for the agent
 type CronTool struct {
 	cronService           *cron.CronService
@@ -33,6 +36,8 @@ type CronTool struct {
 	allowCommand          bool
 	execEnabled           bool
 	commandAllowedRemotes []string
+	// isolatedAgents: agents whose exec is sandboxed; cron command jobs run unsandboxed, so they may not schedule them.
+	isolatedAgents map[string]bool
 }
 
 // NewCronTool creates a new CronTool
@@ -44,7 +49,13 @@ func NewCronTool(
 	allowCommand := true
 	execEnabled := true
 	var commandAllowedRemotes []string
+	isolatedAgents := map[string]bool{}
 	if config != nil {
+		for _, a := range config.Agents.List {
+			if a.Isolation != nil && a.Isolation.Enabled {
+				isolatedAgents[routing.NormalizeAgentID(a.ID)] = true
+			}
+		}
 		allowCommand = config.Tools.Cron.AllowCommand
 		execEnabled = config.Tools.Exec.Enabled
 		commandAllowedRemotes = config.Tools.Cron.CommandAllowedRemotes
@@ -70,6 +81,7 @@ func NewCronTool(
 		allowCommand:          allowCommand,
 		execEnabled:           execEnabled,
 		commandAllowedRemotes: commandAllowedRemotes,
+		isolatedAgents:        isolatedAgents,
 	}, nil
 }
 
@@ -220,6 +232,9 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 	if command != "" {
 		if !t.execEnabled {
 			return ErrorResult("command execution is disabled")
+		}
+		if t.isolatedAgents[ToolAgentID(ctx)] {
+			return ErrorResult(errIsolatedCronCommand)
 		}
 		if !constants.IsInternalChannel(channel) && !isCommandAllowedRemote(channel, chatID, t.commandAllowedRemotes) {
 			return ErrorResult(
@@ -501,6 +516,9 @@ func (t *CronTool) validateCommandMutation(ctx context.Context, args map[string]
 	chatID := ToolChatID(ctx)
 	if !t.execEnabled {
 		return ErrorResult("command execution is disabled")
+	}
+	if t.isolatedAgents[ToolAgentID(ctx)] {
+		return ErrorResult(errIsolatedCronCommand)
 	}
 	if !constants.IsInternalChannel(channel) && !isCommandAllowedRemote(channel, chatID, t.commandAllowedRemotes) {
 		return ErrorResult(
