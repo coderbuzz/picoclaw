@@ -16,6 +16,7 @@ Usage:
   group-agents trust <id> remove <number|lid>
   group-agents trust <id> list
 
+The owner's -admin agent calls this through its built-in group_trust tool (agents.list[].group_trust, runs this script on the host).
 Only the owner's agents may change things: when run from inside ~/.picoclaw, the working
 directory must be the main workspace, or ws-<id>-admin for `trust <id>`. (PicoClaw's exec
 guard keeps each agent's commands in its own workspace.) Work agents have exec, so also
@@ -74,7 +75,7 @@ tools: [read_file, list_dir, web_search, web_fetch, message, send_file, load_ima
     "-admin": """---
 name: {id}-admin
 description: Asisten kerja grup WhatsApp {id} untuk pemilik bot; juga mengatur izin anggota.
-tools: [read_file, write_file, edit_file, append_file, list_dir, exec, google, web_search, web_fetch, message, send_file, load_image, reaction]
+tools: [read_file, write_file, edit_file, append_file, list_dir, exec, google, group_trust, web_search, web_fetch, message, send_file, load_image, reaction]
 allow_read_paths:
   - '^{shared_re}(/|$)'
 allow_write_paths:
@@ -91,11 +92,11 @@ Kamu dipanggil HANYA untuk pesan pemilik bot di grup {id} (pengirim disaring sis
 
 ## Izin anggota
 
-Pemilik bisa memberi izin kerja ke anggota dengan me-reply pesan anggota sambil menulis "izinkan", atau me-mention mereka (mis. "izinkan @A, @B"; satu pesan boleh beberapa orang). Mention muncul di teks sebagai `@<ID>` (deretan angka); dari reply, ambil `<ID>` dari baris `[quoted ... message from <ID>]`; boleh juga nomor HP yang ia sebut. Satu perintah per orang, lewat `exec`:
-- izinkan: `group-agents trust {id} add <ID> <nama bila diketahui>`
-- cabut: `group-agents trust {id} remove <ID atau nomor>`
-- daftar: `group-agents trust {id} list`
-Tulis perintah persis begitu (tanpa path). Bot restart 20 detik setelah izin berubah; sampaikan hasilnya singkat.
+Pemilik bisa memberi izin kerja ke anggota dengan me-reply pesan anggota sambil menulis "izinkan", atau me-mention mereka (mis. "izinkan @A, @B"; satu pesan boleh beberapa orang). Mention muncul di teks sebagai `@<ID>` (deretan angka); dari reply, ambil `<ID>` dari baris `[quoted ... message from <ID>]`; boleh juga nomor HP yang ia sebut. Satu panggilan tool `group_trust` per orang (profil sudah tetap; jangan pakai `exec` untuk ini):
+- izinkan: `action: "add"`, `member: <ID>`, `name: <nama bila diketahui>`
+- cabut: `action: "remove"`, `member: <ID atau nomor>`
+- daftar: `action: "list"`
+Bot restart 20 detik setelah izin berubah; sampaikan hasilnya singkat.
 
 ## Aturan
 
@@ -251,10 +252,13 @@ def isolation_for(shared):
     return {"enabled": True, "expose_paths": [{"source": shared, "target": shared, "mode": "rw"}]}
 
 
-def work_defaults(shared):
+def work_defaults(shared, aid, role):
     """Per-agent settings every work agent gets; existing values are never overwritten."""
     # google: any file the owner shares with the bot's service account (sharing is the access control)
-    return {"isolation": isolation_for(shared), "google": {"files": ["*"], "write": True}}
+    d = {"isolation": isolation_for(shared), "google": {"files": ["*"], "write": True}}
+    if role == "-admin":  # group_trust runs group-agents on the host, outside the sandbox; only the owner's agent
+        d["group_trust"] = {"profile": aid[: -len(role)]}
+    return d
 
 
 def cmd_new(cfg, pid, jids):
@@ -278,7 +282,7 @@ def cmd_new(cfg, pid, jids):
             created.append(md)
         if aid in by_id:
             entry = by_id[aid]
-            for key, val in (work_defaults(shared) if role else {}).items():
+            for key, val in (work_defaults(shared, aid, role) if role else {}).items():
                 if key not in entry:  # repairs profiles made before the setting existed
                     entry[key] = val
                     created.append(key + " " + aid)
@@ -289,7 +293,7 @@ def cmd_new(cfg, pid, jids):
         if model:
             entry["model"] = model
         if role:
-            entry.update(work_defaults(shared))
+            entry.update(work_defaults(shared, aid, role))
         agents(cfg).append(entry)
         by_id[aid] = entry
         created.append("agen " + aid)
