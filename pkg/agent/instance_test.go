@@ -1389,3 +1389,19 @@ func TestNewAgentInstance_GoogleToolOnlyWithAgentConfig(t *testing.T) {
 		t.Fatal("google tool missing for agent with google config")
 	}
 }
+
+func TestNewAgentInstance_GroupTrustToolOnlyWithAgentConfig(t *testing.T) {
+	cfg := &config.Config{Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
+		Workspace: t.TempDir(), ModelName: "test-model", MaxToolIterations: 5,
+	}}}
+	plain := NewAgentInstance(&config.AgentConfig{ID: "plain"}, &cfg.Agents.Defaults, cfg, &mockProvider{})
+	if _, ok := plain.Tools.Get("group_trust"); ok {
+		t.Fatal("group_trust tool registered without agents.list[].group_trust")
+	}
+	withT := NewAgentInstance(
+		&config.AgentConfig{ID: "club-admin", GroupTrust: &config.AgentGroupTrustConfig{Profile: "club"}},
+		&cfg.Agents.Defaults, cfg, &mockProvider{})
+	if _, ok := withT.Tools.Get("group_trust"); !ok {
+		t.Fatal("group_trust tool missing for agent with group_trust config")
+	}
+}

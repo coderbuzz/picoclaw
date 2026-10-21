@@ -172,6 +172,9 @@ func NewAgentInstance(
 	if agentCfg != nil && agentCfg.Google != nil {
 		toolsRegistry.Register(tools.NewGoogleTool(agentCfg.Google))
 	}
+	if agentCfg != nil && agentCfg.GroupTrust != nil {
+		toolsRegistry.Register(tools.NewGroupTrustTool(agentCfg.GroupTrust, workspace))
+	}
 
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessions := initSessionStore(sessionsDir)

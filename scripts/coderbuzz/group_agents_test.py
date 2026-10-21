@@ -65,6 +65,13 @@ class GroupAgentsTest(unittest.TestCase):
             self.assertIn(" google,", open(os.path.join(self.ws("ws-club-" + role), "AGENT.md")).read())
             self.assertEqual(by_id["club-" + role]["google"], {"files": ["*"], "write": True})
         self.assertNotIn("google", by_id["club"])
+        self.assertEqual(by_id["club-admin"]["group_trust"], {"profile": "club"})
+        for aid in ("club", "club-staff"):
+            self.assertNotIn("group_trust", by_id[aid])
+        admin_md = open(os.path.join(self.ws("ws-club-admin"), "AGENT.md")).read()
+        self.assertIn(" group_trust,", admin_md)
+        self.assertNotIn("group-agents trust", admin_md)
+        self.assertNotIn("group_trust", open(os.path.join(self.ws("ws-club-staff"), "AGENT.md")).read())
 
         # the owner's group agent grants trust from a quoted LID
         self.run_tool("trust", "club", "add", LID, "Budi", cwd=self.ws("ws-club-admin"))
@@ -93,6 +100,7 @@ class GroupAgentsTest(unittest.TestCase):
         by_id["club-staff"]["isolation"] = {"enabled": True, "network": True}  # hand-tuned
         by_id["club-staff"].pop("google")
         by_id["club-admin"]["google"] = {"files": ["1AbC"]}  # hand-tuned
+        by_id["club-admin"]["group_trust"] = {"profile": "club", "command": "/opt/ga"}  # hand-tuned
         with open(self.cfg_path, "w") as f:
             json.dump(c, f)
         out = self.run_tool("new", "club")
@@ -103,6 +111,14 @@ class GroupAgentsTest(unittest.TestCase):
         self.assertEqual(by_id["club-staff"]["isolation"], {"enabled": True, "network": True})
         self.assertEqual(by_id["club-staff"]["google"], {"files": ["*"], "write": True})
         self.assertEqual(by_id["club-admin"]["google"], {"files": ["1AbC"]})
+        self.assertEqual(by_id["club-admin"]["group_trust"], {"profile": "club", "command": "/opt/ga"})
+        self.assertNotIn("group_trust", by_id["club-staff"])
+        c = self.cfg()
+        {a["id"]: a for a in c["agents"]["list"]}["club-admin"].pop("group_trust")  # profile from before the tool existed
+        with open(self.cfg_path, "w") as f:
+            json.dump(c, f)
+        self.assertIn("group_trust club-admin", self.run_tool("new", "club"))
+        self.assertEqual({a["id"]: a for a in self.cfg()["agents"]["list"]}["club-admin"]["group_trust"], {"profile": "club"})
         self.assertIn("sudah lengkap", self.run_tool("new", "club"))
 
     def test_only_owner_agents_change_trust(self):
