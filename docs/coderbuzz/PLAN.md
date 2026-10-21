@@ -28,6 +28,7 @@ isi chat, atau nama orang di repo ini (kode, tes, PR, commit). Pakai contoh fikt
 | S7 | Isolasi bubblewrap per agen (`agents.list[].isolation`): exec agen terisolasi, tanpa instance root/HOME asli, jaringan mati default | PR s7-agent-isolation |
 | S8 | Lanjutan S7: `group-agents new` menulis `isolation` untuk profil -admin/-staff (idempoten, memperbaiki profil lama); agen terisolasi tidak boleh membuat/mengubah job cron ber-`command` | PR s8-isolation-followups |
 | S9 | Tool bawaan `google` (Sheets/Docs/Slides/Drive) lewat service account VM (token metadata), izin per agen `agents.list[].google {files, write}`; template group-agents mencantumkan `google`. Lihat `google-tool.md` | PR s9-google-tool |
+| S10 | group-agents: agen kerja (-admin/-staff) otomatis `google {files: ["*"], write: true}` (akses = file yang di-share ke SA); profil lama dilengkapi tanpa menimpa | PR s10-google-generic |
 
 ### S2 — kriteria selesai
 1. `NewWhatsAppNativeChannel` memasang `channels.WithGroupTrigger(...)` dari config channel; `handleIncoming` memakai

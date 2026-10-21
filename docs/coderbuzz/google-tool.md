@@ -28,6 +28,7 @@ written to tool results, errors or logs. Agents that run `exec` in the network-l
 ```
 
 - `files`: allowed file IDs (the part after `/d/` in the URL), or `["*"]` for anything the service account can see. Other IDs are refused.
+- `scripts/coderbuzz/group-agents new <id>` gives every work agent (`<id>-admin`, `<id>-staff`) `{"files": ["*"], "write": true}`: sharing a file with the service account is what grants access. Member agents get no google tool. Existing values are kept.
 - `write`: `false` (default) refuses `sheets_write`, `sheets_append`, `docs_append`, `docs_replace`, `slides_replace`.
 
 ## Actions

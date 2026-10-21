@@ -52,7 +52,7 @@ WORK_RULES = """- `exec` berjalan di sandbox: hanya workspace ini dan data anggo
 - Batas keamanan: jangan mencari, membaca, atau memakai kredensial/token (gcloud, rclone, metadata server, file config/secret bot), jangan memasang paket (pip/npm/apt), jangan sudo, dan jangan memakai heavy-task. Bila pekerjaan butuh akses yang tidak ada, BERHENTI dan bilang singkat apa yang kurang serta alternatifnya; jangan mencari jalan lain.
 - Batasi pekerjaan: kalau sudah lebih dari 15 langkah alat tanpa hasil, berhenti dan laporkan kemajuan serta kendalanya.
 - Data bersama ada di `{shared}/` (dibaca juga oleh asisten anggota). Hasil kerja baru simpan di `out/` workspace ini lalu kirim dengan `send_file`. XLSX: `exec` dengan `python3` + `openpyxl`. Sebelum menimpa file data bersama, salin dulu ke `<nama>.bak-<tanggal>`.
-- Untuk Google Sheet/Doc/Slide yang diizinkan pemilik, pakai tool `google` (bukan `exec`). File baru tidak bisa dibuat bot: minta pemilik membuatnya lalu membagikannya ke akun layanan bot. Bila tool `google` tidak tersedia atau menolak file/aksi, sampaikan bahwa pemilik perlu mengaturnya.
+- Untuk Google Sheet/Doc/Slide yang dibagikan pemilik ke akun layanan bot, pakai tool `google` (`drive_list` untuk melihat file yang tersedia) (bukan `exec`). File baru tidak bisa dibuat bot: minta pemilik membuatnya lalu membagikannya ke akun layanan bot. Bila tool `google` tidak tersedia atau menolak file/aksi, sampaikan bahwa pemilik perlu mengaturnya.
 - Laporkan hasil singkat: apa yang dibuat/diubah dan nama filenya."""
 
 TEMPLATES = {
@@ -248,6 +248,12 @@ def isolation_for(shared):
     return {"enabled": True, "expose_paths": [{"source": shared, "target": shared, "mode": "rw"}]}
 
 
+def work_defaults(shared):
+    """Per-agent settings every work agent gets; existing values are never overwritten."""
+    # google: any file the owner shares with the bot's service account (sharing is the access control)
+    return {"isolation": isolation_for(shared), "google": {"files": ["*"], "write": True}}
+
+
 def cmd_new(cfg, pid, jids):
     authorize()
     if not ID_RE.match(pid) or pid.endswith(("-admin", "-staff")):
@@ -269,9 +275,10 @@ def cmd_new(cfg, pid, jids):
             created.append(md)
         if aid in by_id:
             entry = by_id[aid]
-            if role and "isolation" not in entry:  # repairs profiles made before isolation existed
-                entry["isolation"] = isolation_for(shared)
-                created.append("isolasi " + aid)
+            for key, val in (work_defaults(shared) if role else {}).items():
+                if key not in entry:  # repairs profiles made before the setting existed
+                    entry[key] = val
+                    created.append(key + " " + aid)
             continue
         src = by_id.get(pid + ("-admin" if role == "-staff" else role)) or (by_id.get(tuned + role) if tuned else None)
         model = (src or (agents(cfg)[0] if agents(cfg) else {})).get("model")
@@ -279,7 +286,7 @@ def cmd_new(cfg, pid, jids):
         if model:
             entry["model"] = model
         if role:
-            entry["isolation"] = isolation_for(shared)
+            entry.update(work_defaults(shared))
         agents(cfg).append(entry)
         by_id[aid] = entry
         created.append("agen " + aid)
