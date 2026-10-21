@@ -82,6 +82,14 @@ class GroupAgentsTest(unittest.TestCase):
         self.run_tool("new", "evil", cwd=self.ws("ws-club-admin"), ok=False)
         self.run_tool("trust", "club", "list", cwd=self.ws("ws-club-staff"))  # read-only is fine
 
+    def test_groups_lists_profiles(self):
+        self.run_tool("groups", ok=False)  # no list yet
+        with open(os.path.join(self.pico, "workspace/whatsapp/groups.json"), "w") as f:
+            json.dump([{"jid": G1, "name": "Klub", "participants": 9}, {"jid": G2, "name": "Lain", "participants": 3}], f)
+        self.run_tool("new", "club", G1)
+        out = self.run_tool("groups").splitlines()
+        self.assertEqual(out, [f"{G1}\t9 anggota\tprofil: club\tKlub", f"{G2}\t3 anggota\tprofil: -\tLain"])
+
     def test_rejects_bad_input(self):
         self.run_tool("new", "Bad Id", G1, ok=False)
         self.run_tool("new", "club", "not-a-group", ok=False)
