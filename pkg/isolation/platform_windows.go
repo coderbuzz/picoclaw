@@ -218,3 +218,7 @@ func formatWindowsAccessRules(rules []AccessRule) []map[string]string {
 	}
 	return formatted
 }
+
+func prepareAgentCommand(cmd *exec.Cmd, agent *config.AgentIsolationConfig, workspace string) error {
+	return fmt.Errorf("per-agent isolation is only supported on linux")
+}

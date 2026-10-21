@@ -236,3 +236,34 @@ If you are new to this code, read it in this order:
 9. `pkg/mcp/manager.go`
 
 That path gives the fastest overview of the configuration model, runtime flow, and platform-specific limits.
+
+## Per-agent isolation (Linux)
+
+`agents.list[].isolation` sandboxes only the `exec` tool of that agent; other agents and the global
+`isolation` block are unchanged. Without the field, behavior is exactly as before.
+
+```json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "support",
+        "workspace": "~/.picoclaw/ws-support",
+        "isolation": {
+          "enabled": true,
+          "network": false,
+          "expose_paths": [{ "source": "/srv/shared-docs", "mode": "ro" }]
+        }
+      }
+    ]
+  }
+}
+```
+
+- Mounts: Linux system paths read-only, the agent workspace read-write, plus `expose_paths`. The instance
+  root (`config.json`, `secrets/`), other workspaces and the real `$HOME` are not mounted.
+- `HOME`, `TMPDIR` and `XDG_*` point to `<workspace>/.sandbox/` (created on demand).
+- `network` defaults to `false` (`--unshare-net`, which also hides the cloud metadata endpoint).
+- Fail closed: no `bwrap`, or a working directory / command outside the plan, is an error. Absolute path
+  arguments are never auto-mounted for these agents.
+- Not covered: tools other than `exec` (file tools keep their own workspace guard), and cron-created exec tools.

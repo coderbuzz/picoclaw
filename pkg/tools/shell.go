@@ -46,6 +46,12 @@ type ExecTool struct {
 	restrictToWorkspace bool
 	allowRemote         bool
 	sessionManager      *SessionManager
+	agentIsolation      *config.AgentIsolationConfig
+}
+
+// SetAgentIsolation sandboxes this tool's subprocesses with the agent's own bwrap plan.
+func (t *ExecTool) SetAgentIsolation(cfg *config.AgentIsolationConfig) {
+	t.agentIsolation = cfg
 }
 
 var (
@@ -412,7 +418,7 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 
 	// Route shell execution through the shared isolation entry point so exec tool
 	// subprocesses receive the same isolation policy as other integrations.
-	if err := isolation.Start(cmd); err != nil {
+	if err := isolation.StartForAgent(cmd, t.agentIsolation, t.workingDir); err != nil {
 		return ErrorResult(fmt.Sprintf("failed to start command: %v", err))
 	}
 
@@ -567,7 +573,7 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 
 	// Background sessions use the same startup path so isolation stays consistent
 	// with synchronous exec runs.
-	if err := isolation.Start(cmd); err != nil {
+	if err := isolation.StartForAgent(cmd, t.agentIsolation, t.workingDir); err != nil {
 		if session.ptyMaster != nil {
 			_ = session.ptyMaster.Close()
 		}

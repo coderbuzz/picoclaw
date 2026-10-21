@@ -3270,3 +3270,18 @@ func testChannelsConfigWithTokens() ChannelsConfig {
 	}
 	return channels
 }
+
+func TestAgentIsolationConfigUnmarshal(t *testing.T) {
+	var list []AgentConfig
+	data := `[{"id":"a","isolation":{"enabled":true,"network":true,"expose_paths":[{"source":"/srv/data","mode":"ro"}]}},{"id":"b"}]`
+	if err := json.Unmarshal([]byte(data), &list); err != nil {
+		t.Fatal(err)
+	}
+	iso := list[0].Isolation
+	if iso == nil || !iso.Enabled || !iso.Network || len(iso.ExposePaths) != 1 || iso.ExposePaths[0].Source != "/srv/data" {
+		t.Fatalf("isolation = %+v", iso)
+	}
+	if list[1].Isolation != nil {
+		t.Fatalf("agent without field must have nil isolation, got %+v", list[1].Isolation)
+	}
+}

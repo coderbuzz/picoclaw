@@ -128,7 +128,10 @@ func ResolveUserEnv(root string) UserEnv {
 // ApplyUserEnv rewrites the child process environment so home, temp, and
 // platform-specific user-data directories point into the instance root.
 func ApplyUserEnv(cmd *exec.Cmd, root string) {
-	userEnv := ResolveUserEnv(root)
+	applyUserEnv(cmd, ResolveUserEnv(root))
+}
+
+func applyUserEnv(cmd *exec.Cmd, userEnv UserEnv) {
 	envMap := make(map[string]string)
 	for _, item := range cmd.Environ() {
 		if idx := strings.IndexRune(item, '='); idx > 0 {
@@ -440,4 +443,16 @@ func PrepareCommand(cmd *exec.Cmd) error {
 		}
 	}
 	return nil
+}
+
+// StartForAgent starts cmd under the agent's own sandbox when it is enabled, and
+// otherwise behaves exactly like Start (global isolation, if any).
+func StartForAgent(cmd *exec.Cmd, agent *config.AgentIsolationConfig, workspace string) error {
+	if agent == nil || !agent.Enabled {
+		return Start(cmd)
+	}
+	if err := prepareAgentCommand(cmd, agent, workspace); err != nil {
+		return err
+	}
+	return cmd.Start()
 }

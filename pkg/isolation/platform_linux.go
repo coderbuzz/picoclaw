@@ -120,14 +120,15 @@ func buildLinuxBwrapArgs(
 	originalArgs []string,
 	execDir string,
 	plan []MountRule,
+	extraFlags ...string,
 ) ([]string, error) {
 	bwrapArgs := []string{
 		"bwrap",
 		"--die-with-parent",
 		"--unshare-ipc",
-		"--proc", "/proc",
-		"--dev", "/dev",
 	}
+	bwrapArgs = append(bwrapArgs, extraFlags...)
+	bwrapArgs = append(bwrapArgs, "--proc", "/proc", "--dev", "/dev")
 	for _, rule := range plan {
 		flag, err := linuxBindFlag(rule)
 		if err != nil {
@@ -261,4 +262,89 @@ func linuxBindFlag(rule MountRule) (string, error) {
 		return "--bind", nil
 	}
 	return "--ro-bind", nil
+}
+
+// prepareAgentCommand wraps cmd in bwrap with a mount plan limited to system
+// paths, the agent workspace and its expose_paths. Unlike the global backend it
+// never adds mounts for arguments or the working directory: anything outside the
+// plan is an error, as is a missing bwrap.
+func prepareAgentCommand(cmd *exec.Cmd, agent *config.AgentIsolationConfig, workspace string) error {
+	if cmd == nil || cmd.Path == "" || len(cmd.Args) == 0 {
+		return fmt.Errorf("agent isolation: empty command")
+	}
+	bwrapPath, err := exec.LookPath("bwrap")
+	if err != nil {
+		return fmt.Errorf("agent isolation requires bwrap and does not fall back: %w", err)
+	}
+	if err := ValidateExposePaths(agent.ExposePaths); err != nil {
+		return err
+	}
+	if !filepath.IsAbs(workspace) {
+		return fmt.Errorf("agent isolation: workspace must be absolute: %s", workspace)
+	}
+	workspace = filepath.Clean(workspace)
+	sandbox := filepath.Join(workspace, ".sandbox")
+	userEnv := UserEnv{
+		Home:   filepath.Join(sandbox, "home"),
+		Tmp:    filepath.Join(sandbox, "tmp"),
+		Config: filepath.Join(sandbox, "config"),
+		Cache:  filepath.Join(sandbox, "cache"),
+		State:  filepath.Join(sandbox, "state"),
+	}
+	for _, dir := range []string{userEnv.Home, userEnv.Tmp, userEnv.Config, userEnv.Cache, userEnv.State} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("agent isolation: prepare %s: %w", dir, err)
+		}
+	}
+
+	overrides := append([]config.ExposePath{{Source: workspace, Target: workspace, Mode: "rw"}}, agent.ExposePaths...)
+	plan := MergeExposePaths(defaultLinuxSystemExposePaths(), overrides)
+	rules := make([]MountRule, 0, len(plan))
+	for _, item := range plan {
+		rules = append(rules, MountRule{Source: item.Source, Target: item.Target, Mode: item.Mode})
+	}
+
+	execDir := ""
+	if cmd.Dir != "" {
+		if execDir, err = filepath.Abs(cmd.Dir); err != nil {
+			return fmt.Errorf("agent isolation: resolve dir %s: %w", cmd.Dir, err)
+		}
+		if !coveredByPlan(rules, execDir) {
+			return fmt.Errorf("agent isolation: working dir %s is outside the sandbox", execDir)
+		}
+	}
+	resolvedPath, err := resolveLinuxCommandPath(cmd.Path, execDir)
+	if err != nil {
+		return err
+	}
+	if !coveredByPlan(rules, resolvedPath) {
+		return fmt.Errorf("agent isolation: command %s is outside the sandbox", resolvedPath)
+	}
+
+	var extra []string
+	extra = append(extra, "--unshare-pid")
+	if !agent.Network {
+		extra = append(extra, "--unshare-net")
+	}
+	bwrapArgs, err := buildLinuxBwrapArgs(cmd.Path, resolvedPath, cmd.Args, execDir, rules, extra...)
+	if err != nil {
+		return err
+	}
+	applyUserEnv(cmd, userEnv)
+	cmd.Path = bwrapPath
+	cmd.Args = bwrapArgs
+	cmd.Dir = ""
+	return nil
+}
+
+// coveredByPlan reports whether path lies under a mount target of the plan.
+func coveredByPlan(plan []MountRule, path string) bool {
+	path = filepath.Clean(path)
+	for _, rule := range plan {
+		t := filepath.Clean(rule.Target)
+		if path == t || strings.HasPrefix(path, strings.TrimSuffix(t, "/")+"/") {
+			return true
+		}
+	}
+	return false
 }

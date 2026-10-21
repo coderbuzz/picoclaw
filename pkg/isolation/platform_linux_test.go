@@ -4,7 +4,9 @@ package isolation
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -144,5 +146,119 @@ func TestAppendLinuxArgumentMounts_AddsAbsoluteArgumentPaths(t *testing.T) {
 	}
 	if plan[1].Source != filepath.Dir(output) || plan[1].Mode != "rw" {
 		t.Fatalf("appendLinuxArgumentMounts()[1] = %+v, want source=%q mode=rw", plan[1], filepath.Dir(output))
+	}
+}
+
+func fakeBwrapOnPath(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "bwrap"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestPrepareAgentCommandMountPlan(t *testing.T) {
+	fakeBwrapOnPath(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PICOCLAW_HOME", filepath.Join(home, ".picoclaw"))
+	ws := filepath.Join(t.TempDir(), "ws-demo")
+	extraRO, extraRW := t.TempDir(), t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("/bin/sh", "-c", "cat "+outside)
+	cmd.Dir = ws
+	agent := &config.AgentIsolationConfig{
+		Enabled: true,
+		ExposePaths: []config.ExposePath{
+			{Source: extraRO, Mode: "ro"},
+			{Source: extraRW, Mode: "rw"},
+		},
+	}
+	if err := prepareAgentCommand(cmd, agent, ws); err != nil {
+		t.Fatalf("prepareAgentCommand() error = %v", err)
+	}
+	joined := strings.Join(cmd.Args, " ")
+	for _, want := range []string{
+		"--bind " + ws + " " + ws,
+		"--ro-bind " + extraRO + " " + extraRO,
+		"--bind " + extraRW + " " + extraRW,
+		"--unshare-net", "--unshare-pid",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("args missing %q: %s", want, joined)
+		}
+	}
+	for _, bad := range []string{"bind " + outside, filepath.Join(home, ".picoclaw"), "--bind " + home + " "} {
+		if strings.Contains(joined, bad) {
+			t.Errorf("args must not contain %q: %s", bad, joined)
+		}
+	}
+	env := strings.Join(cmd.Env, "\n")
+	if !strings.Contains(env, "HOME="+filepath.Join(ws, ".sandbox", "home")) {
+		t.Errorf("HOME not redirected into workspace: %s", env)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".sandbox", "tmp")); err != nil {
+		t.Errorf("sandbox tmp not created: %v", err)
+	}
+
+	cmd = exec.Command("/bin/sh", "-c", "true")
+	cmd.Dir = ws
+	agent.Network = true
+	if err := prepareAgentCommand(cmd, agent, ws); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(cmd.Args, " "), "--unshare-net") {
+		t.Error("network=true must not unshare net")
+	}
+}
+
+func TestPrepareAgentCommandFailsClosed(t *testing.T) {
+	ws := t.TempDir()
+	agent := &config.AgentIsolationConfig{Enabled: true}
+
+	t.Setenv("PATH", t.TempDir())
+	if err := prepareAgentCommand(exec.Command("/bin/sh", "-c", "true"), agent, ws); err == nil {
+		t.Error("missing bwrap must be an error")
+	}
+
+	fakeBwrapOnPath(t)
+	cmd := exec.Command("/bin/sh", "-c", "true")
+	cmd.Dir = t.TempDir() // outside the plan
+	if err := prepareAgentCommand(cmd, agent, ws); err == nil {
+		t.Error("cwd outside the plan must be an error")
+	}
+}
+
+func TestAgentIsolationIntegration(t *testing.T) {
+	if _, err := exec.LookPath("bwrap"); err != nil {
+		t.Skip("bwrap not installed")
+	}
+	ws := t.TempDir()
+	secret := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(secret, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(script string) error {
+		cmd := exec.Command("sh", "-c", script)
+		cmd.Dir = ws
+		if err := StartForAgent(cmd, &config.AgentIsolationConfig{Enabled: true}, ws); err != nil {
+			return err
+		}
+		return cmd.Wait()
+	}
+	if err := run("echo ok > " + filepath.Join(ws, "out")); err != nil {
+		t.Skipf("bwrap unusable here (user namespaces?): %v", err)
+	}
+	if err := run("cat " + secret); err == nil {
+		t.Error("reading a file outside the plan must fail")
+	}
+	// Exit 0 only if a non-loopback interface is visible.
+	if err := run("grep -v '^ *lo:' /proc/net/dev | grep -q :"); err == nil {
+		t.Error("network must be unshared")
 	}
 }
