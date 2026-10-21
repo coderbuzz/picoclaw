@@ -286,6 +286,11 @@ func (c *WhatsAppNativeChannel) eventHandler(evt any) {
 	case *events.Connected, *events.PushNameSetting:
 		// PushName may only arrive after the first app-state sync, hence both events.
 		c.sendAvailable()
+		if _, ok := v.(*events.Connected); ok {
+			c.runMediaTask(c.writeGroupList) // tracked goroutine; a network call must not block the event loop
+		}
+	case *events.JoinedGroup:
+		c.runMediaTask(c.writeGroupList)
 	case *events.Disconnected:
 		logger.InfoCF("whatsapp", "WhatsApp disconnected, will attempt reconnection", nil)
 		c.reconnectMu.Lock()

@@ -9,6 +9,7 @@ through dispatch rules (a member cannot talk their way into another agent):
 
 Usage:
   group-agents list
+  group-agents groups                         WhatsApp groups the bot is in (JID, name, profile)
   group-agents new <id> [<group-jid> ...]     create missing agents/workspaces, attach groups (idempotent)
   group-agents add-group <id> <group-jid>
   group-agents trust <id> add <number|lid> [name]
@@ -34,6 +35,7 @@ HOME = os.path.expanduser("~")
 PICO = os.path.join(HOME, ".picoclaw")
 CFG = os.path.join(PICO, "config.json")
 STORE = os.path.join(PICO, "workspace/whatsapp/store.db")
+GROUP_LIST = os.path.join(PICO, "workspace/whatsapp/groups.json")  # written by the WhatsApp channel on connect
 MAIN_WS = os.path.join(PICO, "workspace")
 TRUST = "trusted-"
 IDLE_RESET_MINUTES = 1440
@@ -315,6 +317,18 @@ def cmd_list(cfg):
         print(f"{pid}: grup {len(profile_groups(cfg, pid))}, anggota diizinkan {len(trusted_keys(cfg, pid))}{extra}")
 
 
+def cmd_groups(cfg):
+    if not os.path.exists(GROUP_LIST):
+        die("daftar grup belum ada; muncul setelah WhatsApp bot tersambung ulang")
+    with open(GROUP_LIST) as f:
+        groups = json.load(f)
+    owner_of = {r["when"]["chat"]: r["agent"] for r in rules(cfg)
+                if r["when"].get("chat", "").startswith("group:") and not r["when"].get("sender")}
+    for g in groups:
+        profile = owner_of.get("group:" + g["jid"], "-")
+        print(f"{g['jid']}\t{g['participants']} anggota\tprofil: {profile}\t{g['name']}")
+
+
 def main(argv):
     if not argv:
         die(__doc__)
@@ -322,6 +336,8 @@ def main(argv):
     cmd, rest = argv[0], argv[1:]
     if cmd == "list":
         cmd_list(cfg)
+    elif cmd == "groups":
+        cmd_groups(cfg)
     elif cmd == "new" and rest:
         cmd_new(cfg, rest[0], rest[1:])
     elif cmd == "add-group" and len(rest) == 2:

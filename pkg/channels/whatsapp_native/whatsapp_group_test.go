@@ -141,3 +141,30 @@ func TestPrependQuoted(t *testing.T) {
 		}
 	}
 }
+
+func TestGroupListJSON(t *testing.T) {
+	g := func(user, name string, members int) *types.GroupInfo {
+		info := &types.GroupInfo{JID: types.NewJID(user, types.GroupServer), Participants: make([]types.GroupParticipant, members)}
+		info.Name = name
+		return info
+	}
+	data, err := groupListJSON([]*types.GroupInfo{g("2", "Zeta", 3), nil, g("1", "Alpha", 5)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[
+  {
+    "jid": "1@g.us",
+    "name": "Alpha",
+    "participants": 5
+  },
+  {
+    "jid": "2@g.us",
+    "name": "Zeta",
+    "participants": 3
+  }
+]`
+	if string(data) != want {
+		t.Errorf("got %s", data)
+	}
+}
