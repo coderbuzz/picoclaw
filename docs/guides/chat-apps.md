@@ -203,6 +203,24 @@ PicoClaw can connect to WhatsApp in two ways:
 - In groups, a media message without text follows the same gate as text: it must mention the bot or quote one of its messages.
 - Outgoing media (agent `send_media`): images are sent as images with caption, audio as audio (an `.ogg` named `voice*` becomes a voice note), everything else, including video, as a document with its filename and MIME type. Files over `max_media_bytes` are skipped (logged, send reports failure). Media transfers run in the background, at most 2 at a time.
 
+**DM webhooks (native)**
+
+`dm_webhooks` hands direct messages to your own HTTPS endpoint instead of the agent, for flows such as sign-in codes. Default: empty (nothing changes).
+
+```json
+"settings": {
+  "dm_webhooks": [
+    { "pattern": "LOGIN [A-Z0-9]{8}", "url": "https://example.com/api/wa", "secret_file": "secrets/wa-webhook", "error_reply": "Service busy, try again shortly." }
+  ]
+}
+```
+
+- Only DMs (never groups, never your own messages) whose **whole text** matches `pattern` (Go regexp, compiled at start; an invalid pattern or url is a config error). Matching messages are not sent to the agent.
+- Because the pattern is an explicit opt-in and the endpoint verifies a signature, a match is handled before `allow_from`.
+- The bot POSTs JSON `{"message_id","text","sender_pn","sender_lid","chat_id","timestamp"}`. `sender_pn` is the digits-only phone number and is empty when WhatsApp has not yet revealed it for a LID sender (no `SenderAlt`, no LID mapping in the store); `sender_lid` is the LID user when known.
+- Headers: `X-Picoclaw-Timestamp` (epoch seconds) and `X-Picoclaw-Signature: sha256=<hex HMAC-SHA256(secret, timestamp + "." + body)>`. `secret_file` is read like a `file://` credential (relative to the config directory). `url` must be https (http only for loopback); redirects are not followed; timeout 10 s.
+- A `200` with `{"reply": "..."}` sends that text to the sender (an empty reply sends nothing). Any other status, timeout or invalid body sends `error_reply` (default: "Layanan sedang sibuk, coba lagi sebentar lagi."). Logs carry the pattern and HTTP status, never message text.
+
 If `session_store_path` is empty, the session is stored in `<workspace>/whatsapp/`. Run `picoclaw gateway`; on first run, scan the QR code printed in the terminal with WhatsApp → Linked Devices.
 
 </details>
