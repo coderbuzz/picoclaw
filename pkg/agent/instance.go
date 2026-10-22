@@ -172,6 +172,9 @@ func NewAgentInstance(
 	if agentCfg != nil && agentCfg.Google != nil {
 		toolsRegistry.Register(tools.NewGoogleTool(agentCfg.Google))
 	}
+	if agentCfg != nil && agentCfg.Browser != nil {
+		toolsRegistry.Register(tools.NewBrowserTool(agentCfg.Browser, workspace))
+	}
 	if agentCfg != nil && agentCfg.GroupTrust != nil {
 		toolsRegistry.Register(tools.NewGroupTrustTool(agentCfg.GroupTrust, workspace))
 	}

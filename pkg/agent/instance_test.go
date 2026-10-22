@@ -1405,3 +1405,19 @@ func TestNewAgentInstance_GroupTrustToolOnlyWithAgentConfig(t *testing.T) {
 		t.Fatal("group_trust tool missing for agent with group_trust config")
 	}
 }
+
+func TestNewAgentInstance_BrowserToolOnlyWithAgentConfig(t *testing.T) {
+	cfg := &config.Config{Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
+		Workspace: t.TempDir(), ModelName: "test-model", MaxToolIterations: 5,
+	}}}
+	plain := NewAgentInstance(&config.AgentConfig{ID: "plain"}, &cfg.Agents.Defaults, cfg, &mockProvider{})
+	if _, ok := plain.Tools.Get("browser"); ok {
+		t.Fatal("browser tool registered without agents.list[].browser")
+	}
+	withB := NewAgentInstance(
+		&config.AgentConfig{ID: "b", Browser: &config.AgentBrowserConfig{}},
+		&cfg.Agents.Defaults, cfg, &mockProvider{})
+	if _, ok := withB.Tools.Get("browser"); !ok {
+		t.Fatal("browser tool missing for agent with browser config")
+	}
+}

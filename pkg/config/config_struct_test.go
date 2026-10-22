@@ -402,3 +402,13 @@ func TestSkillsRegistriesConfigUnmarshalYAMLRetainsDefaultsForOmittedFields(t *t
 	assert.Equal(t, "registry-token", github.AuthToken.String())
 	assert.Empty(t, github.Param)
 }
+
+func TestAgentBrowserConfigParse(t *testing.T) {
+	var a AgentConfig
+	if err := json.Unmarshal([]byte(`{"id":"b","browser":{"command":"/usr/bin/chromium","timeout_seconds":30}}`), &a); err != nil {
+		t.Fatal(err)
+	}
+	if a.Browser == nil || a.Browser.Command != "/usr/bin/chromium" || a.Browser.TimeoutSeconds != 30 {
+		t.Fatalf("got %+v", a.Browser)
+	}
+}
