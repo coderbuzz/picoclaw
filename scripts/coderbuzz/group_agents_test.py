@@ -64,7 +64,10 @@ class GroupAgentsTest(unittest.TestCase):
         for role in ("admin", "staff"):
             self.assertIn(" google,", open(os.path.join(self.ws("ws-club-" + role), "AGENT.md")).read())
             self.assertEqual(by_id["club-" + role]["google"], {"files": ["*"], "write": True})
+            self.assertIn(" browser]", open(os.path.join(self.ws("ws-club-" + role), "AGENT.md")).read())
+            self.assertTrue(by_id["club-" + role]["browser"]["command"].endswith("/.local/bin/browser-run"))
         self.assertNotIn("google", by_id["club"])
+        self.assertNotIn("browser", by_id["club"])
         self.assertEqual(by_id["club-admin"]["group_trust"], {"profile": "club"})
         for aid in ("club", "club-staff"):
             self.assertNotIn("group_trust", by_id[aid])

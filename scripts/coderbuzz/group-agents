@@ -54,6 +54,7 @@ WORK_RULES = """- `exec` berjalan di sandbox: hanya workspace ini dan data anggo
 - Batasi pekerjaan: kalau sudah lebih dari 15 langkah alat tanpa hasil, berhenti dan laporkan kemajuan serta kendalanya.
 - Data bersama ada di `{shared}/` (dibaca juga oleh asisten anggota). Hasil kerja baru simpan di `out/` workspace ini lalu kirim dengan `send_file`. XLSX: `exec` dengan `python3` + `openpyxl`. Sebelum menimpa file data bersama, salin dulu ke `<nama>.bak-<tanggal>`.
 - Untuk Google Sheet/Doc/Slide yang dibagikan pemilik ke akun layanan bot, pakai tool `google` (`drive_list` untuk melihat file yang tersedia) (bukan `exec`). File baru tidak bisa dibuat bot: minta pemilik membuatnya lalu membagikannya ke akun layanan bot. Bila tool `google` tidak tersedia atau menolak file/aksi, sampaikan bahwa pemilik perlu mengaturnya.
+- Halaman web yang butuh JavaScript: pakai tool `browser` (text, atau screenshot lalu `send_file`), bukan chromium lewat `exec`. Situs yang wajib login biasanya hanya menampilkan halaman login; sampaikan apa adanya.
 - Laporkan hasil singkat: apa yang dibuat/diubah dan nama filenya."""
 
 TEMPLATES = {
@@ -75,7 +76,7 @@ tools: [read_file, list_dir, web_search, web_fetch, message, send_file, load_ima
     "-admin": """---
 name: {id}-admin
 description: Asisten kerja grup WhatsApp {id} untuk pemilik bot; juga mengatur izin anggota.
-tools: [read_file, write_file, edit_file, append_file, list_dir, exec, google, group_trust, web_search, web_fetch, message, send_file, load_image, reaction]
+tools: [read_file, write_file, edit_file, append_file, list_dir, exec, google, group_trust, web_search, web_fetch, message, send_file, load_image, reaction, browser]
 allow_read_paths:
   - '^{shared_re}(/|$)'
 allow_write_paths:
@@ -104,7 +105,7 @@ Bot restart 20 detik setelah izin berubah; sampaikan hasilnya singkat.
     "-staff": """---
 name: {id}-staff
 description: Asisten kerja grup WhatsApp {id} untuk anggota yang diizinkan pemilik.
-tools: [read_file, write_file, edit_file, append_file, list_dir, exec, google, web_search, web_fetch, message, send_file, load_image, reaction]
+tools: [read_file, write_file, edit_file, append_file, list_dir, exec, google, web_search, web_fetch, message, send_file, load_image, reaction, browser]
 allow_read_paths:
   - '^{shared_re}(/|$)'
 allow_write_paths:
@@ -269,7 +270,9 @@ def isolation_for(shared):
 def work_defaults(shared, aid, role):
     """Per-agent settings every work agent gets; existing values are never overwritten."""
     # google: any file the owner shares with the bot's service account (sharing is the access control)
-    d = {"isolation": isolation_for(shared), "google": {"files": ["*"], "write": True}}
+    d = {"isolation": isolation_for(shared), "google": {"files": ["*"], "write": True},
+         # browser: Chromium on the host in its own cgroup (wrapper), behind picoclaw's SSRF-guarded proxy
+         "browser": {"command": os.path.expanduser("~/.local/bin/browser-run")}}
     if role == "-admin":  # group_trust runs group-agents on the host, outside the sandbox; only the owner's agent
         d["group_trust"] = {"profile": aid[: -len(role)]}
     return d
