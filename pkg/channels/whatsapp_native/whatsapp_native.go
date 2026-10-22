@@ -289,8 +289,9 @@ func (c *WhatsAppNativeChannel) eventHandler(evt any) {
 	switch v := evt.(type) {
 	case *events.Message:
 		c.handleIncoming(v)
-	case *events.Connected, *events.PushNameSetting:
-		// PushName may only arrive after the first app-state sync, hence both events.
+	case *events.Connected, *events.PushNameSetting, *events.AppStateSyncComplete:
+		// PushName may only arrive after the first app-state sync; a full sync (fresh pairing)
+		// suppresses PushNameSetting, so AppStateSyncComplete covers that case.
 		c.sendAvailable()
 		if _, ok := v.(*events.Connected); ok {
 			c.runMediaTask(c.writeGroupList) // tracked goroutine; a network call must not block the event loop
