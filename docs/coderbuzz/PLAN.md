@@ -30,6 +30,7 @@ isi chat, atau nama orang di repo ini (kode, tes, PR, commit). Pakai contoh fikt
 | S9 | Tool bawaan `google` (Sheets/Docs/Slides/Drive) lewat service account VM (token metadata), izin per agen `agents.list[].google {files, write}`; template group-agents mencantumkan `google`. Lihat `google-tool.md` | PR s9-google-tool |
 | S10 | group-agents: agen kerja (-admin/-staff) otomatis `google {files: ["*"], write: true}` (akses = file yang di-share ke SA); profil lama dilengkapi tanpa menimpa | PR s10-google-generic |
 | S12 | Tool bawaan `group_trust` (agen -admin): menjalankan `group-agents trust` di host tanpa shell/sandbox; `agents.list[].group_trust {profile, command}`; group-agents menulisnya untuk -admin dan template memakainya. Lihat `group-trust-tool.md` | PR s12-group-trust-tool |
+| S17 | WA `settings.dm_webhooks[]` (`pattern`, `url`, `secret_file`, `error_reply`): DM yang teksnya cocok utuh dengan pola diteruskan ke endpoint HTTPS (payload `message_id,text,sender_pn,sender_lid,chat_id,timestamp`, header `X-Picoclaw-Timestamp` + `X-Picoclaw-Signature` HMAC-SHA256, timeout 10 dtk), balasan `{"reply"}` dikirim ke pengirim, gagal = `error_reply`; tidak masuk bus/agen, diproses sebelum `allow_from`. Config tak valid = galat saat load. Untuk sirkel S1 | PR dm-webhooks |
 
 ### S2 — kriteria selesai
 1. `NewWhatsAppNativeChannel` memasang `channels.WithGroupTrigger(...)` dari config channel; `handleIncoming` memakai

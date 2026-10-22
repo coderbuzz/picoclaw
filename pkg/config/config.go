@@ -590,6 +590,8 @@ type WhatsAppSettings struct {
 	// DeviceOS (e.g. "Mac OS") makes the linked device register as Chrome on that OS instead of "whatsmeow".
 	// Sent only while pairing: re-pair to apply.
 	DeviceOS string `json:"device_os" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_DEVICE_OS"`
+	// DMWebhooks hands matching direct messages to an HTTPS endpoint instead of the agent.
+	DMWebhooks []DMWebhook `json:"dm_webhooks" yaml:"-"`
 }
 
 type TelegramSettings struct {
@@ -1575,6 +1577,9 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	if err = cfg.ValidateTurnProfile(); err != nil {
+		return nil, err
+	}
+	if err = cfg.validateChannelDMWebhooks(); err != nil {
 		return nil, err
 	}
 	cfg.Gateway.Host, err = resolveGatewayHostFromEnv(gatewayHostBeforeEnv)

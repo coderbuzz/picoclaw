@@ -11,6 +11,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +63,9 @@ type WhatsAppNativeChannel struct {
 	stopping     atomic.Bool    // set once Stop begins; prevents new wg.Add calls
 	wg           sync.WaitGroup // tracks background goroutines (QR handler, reconnect, media)
 	mediaSem     chan struct{}  // bounds concurrent media transfers (RAM)
+	dmHooks      []dmWebhook
+	dmClient     *http.Client
+	sendText     func(ctx context.Context, chatID, text string) error // overridden in tests
 }
 
 // NewWhatsAppNativeChannel creates a WhatsApp channel that uses whatsmeow for connection.
@@ -80,11 +84,17 @@ func NewWhatsAppNativeChannel(
 	if storePath == "" {
 		storePath = "whatsapp"
 	}
+	hooks, err := compileDMWebhooks(cfg)
+	if err != nil {
+		return nil, err
+	}
 	c := &WhatsAppNativeChannel{
 		BaseChannel: base,
 		config:      cfg,
 		storePath:   storePath,
 		mediaSem:    make(chan struct{}, maxConcurrentMedia),
+		dmHooks:     hooks,
+		dmClient:    newDMWebhookClient(),
 	}
 	return c, nil
 }
@@ -388,6 +398,16 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 
+	// dm_webhooks is an explicit opt-in per pattern and the endpoint authenticates by signature, so it
+	// runs before allow_from; matching messages never reach the agent.
+	if !isGroup && att == nil {
+		if h := matchDMWebhook(c.dmHooks, content); h != nil {
+			c.markRead(evt)
+			c.runDMWebhook(h, evt, content)
+			return
+		}
+	}
+
 	mentioned := false
 	if isGroup {
 		mentioned = isTriggeredToBot(contextInfoOf(evt.Message), c.botJIDs())
@@ -495,6 +515,51 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 	c.runMediaTask(deliver)
+}
+
+// runDMWebhook calls the webhook off the whatsmeow event loop and sends back its reply (or error_reply).
+func (c *WhatsAppNativeChannel) runDMWebhook(h *dmWebhook, evt *events.Message, text string) {
+	pn, lid := dmSenderPNLID(evt.Info.Sender, evt.Info.SenderAlt, c.counterpartJID)
+	chatID := evt.Info.Chat.String()
+	payload := dmWebhookPayload{
+		MessageID: evt.Info.ID,
+		Text:      text,
+		SenderPN:  pn,
+		SenderLID: lid,
+		ChatID:    chatID,
+		Timestamp: evt.Info.Timestamp.Unix(),
+	}
+	c.reconnectMu.Lock()
+	if c.stopping.Load() {
+		c.reconnectMu.Unlock()
+		return
+	}
+	c.wg.Add(1)
+	c.reconnectMu.Unlock()
+	go func() {
+		defer c.wg.Done()
+		reply, status, err := h.call(c.runCtx, c.dmClient, payload)
+		fields := map[string]any{"pattern": h.pattern, "status": status}
+		if err != nil {
+			logger.WarnCF("whatsapp", "dm webhook failed", fields)
+			reply = h.errorReply
+		} else {
+			logger.InfoCF("whatsapp", "dm webhook handled", fields)
+		}
+		if reply == "" {
+			return
+		}
+		send := c.sendText
+		if send == nil {
+			send = func(ctx context.Context, chatID, text string) error {
+				_, err := c.Send(ctx, bus.OutboundMessage{Channel: "whatsapp", ChatID: chatID, Content: text})
+				return err
+			}
+		}
+		if err := send(c.runCtx, chatID, reply); err != nil {
+			logger.WarnCF("whatsapp", "dm webhook reply not sent", map[string]any{"error": err.Error()})
+		}
+	}()
 }
 
 // botJIDs returns the bot's own phone-number JID and LID (empty until paired).
