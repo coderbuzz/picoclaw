@@ -325,6 +325,8 @@ type AgentConfig struct {
 	Isolation *AgentIsolationConfig `json:"isolation,omitempty"`
 	// Google enables the built-in google tool (Sheets/Docs/Slides/Drive via the VM service account) for this agent; nil = tool not registered.
 	Google *AgentGoogleConfig `json:"google,omitempty"`
+	// Browser enables the built-in browser tool (host headless Chromium, SSRF-guarded proxy); nil = tool not registered.
+	Browser *AgentBrowserConfig `json:"browser,omitempty"`
 	// GroupTrust enables the built-in group_trust tool (runs the host's group-agents trust command) for this agent; nil = tool not registered.
 	GroupTrust *AgentGroupTrustConfig `json:"group_trust,omitempty"`
 }
@@ -334,6 +336,12 @@ type AgentConfig struct {
 type AgentGroupTrustConfig struct {
 	Profile string `json:"profile"`
 	Command string `json:"command,omitempty"`
+}
+
+// AgentBrowserConfig: Command defaults to "chromium", TimeoutSeconds to 45.
+type AgentBrowserConfig struct {
+	Command        string `json:"command,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
 // AgentGoogleConfig limits what the google tool may touch: Files are file IDs (["*"] = anything the

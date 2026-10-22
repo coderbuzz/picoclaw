@@ -2302,7 +2302,10 @@ func looksLikeHTML(body string) bool {
 		strings.HasPrefix(lower, "<html")
 }
 
-func (t *WebFetchTool) extractText(htmlContent string) string {
+func (t *WebFetchTool) extractText(htmlContent string) string { return ExtractText(htmlContent) }
+
+// ExtractText strips scripts, styles and tags from HTML and collapses blank lines.
+func ExtractText(htmlContent string) string {
 	result := reScript.ReplaceAllLiteralString(htmlContent, "")
 	result = reStyle.ReplaceAllLiteralString(result, "")
 	result = reTags.ReplaceAllLiteralString(result, "")
