@@ -71,7 +71,7 @@ func dmAppNames(dir string) []string {
 	return names
 }
 
-// dmFingerprint covers names, mtimes and sizes of the *.json files plus the mtimes of their secret files.
+// dmFingerprint covers names, mtimes and sizes of the *.json files plus the mtimes and sizes of their secret files.
 func dmFingerprint(dir string) string {
 	var b strings.Builder
 	cfgDir := config.ConfigDir()
@@ -84,7 +84,7 @@ func dmFingerprint(dir string) string {
 		var f dmAppFile
 		if data, err := os.ReadFile(p); err == nil && json.Unmarshal(data, &f) == nil && f.SecretFile != "" {
 			if sst, err := os.Stat(filepath.Join(cfgDir, f.SecretFile)); err == nil {
-				fmt.Fprintf(&b, "%d", sst.ModTime().UnixNano())
+				fmt.Fprintf(&b, "%d|%d", sst.ModTime().UnixNano(), sst.Size())
 			}
 		}
 		b.WriteByte('\n')

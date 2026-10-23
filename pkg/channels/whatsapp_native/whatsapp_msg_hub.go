@@ -42,7 +42,8 @@ const (
 	hubPingEvery    = 30 * time.Second
 	hubBackoffMin   = time.Second
 	hubBackoffMax   = time.Minute
-	hubGoodSession  = time.Minute // a session this long resets the reconnect backoff
+	hubGoodSession  = time.Minute    // a session this long resets the reconnect backoff
+	hubMaxAge       = 24 * time.Hour // the hub expires older messages; never send them late
 )
 
 var hubToRe = regexp.MustCompile(`^[0-9]{8,15}$`)
@@ -136,7 +137,7 @@ type hubAck struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// hubSent keeps the last hubSentKeep finally-acked (app,id) so a redelivery is answered, not sent twice.
+// hubSent keeps the last hubSentKeep decided (app,id) so a redelivery is answered, not sent twice.
 type hubSent struct {
 	mu   sync.Mutex
 	path string
@@ -171,11 +172,17 @@ func (s *hubSent) add(a hubAck) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a.Type = ""
-	if _, dup := s.idx[hubKey(a.App, a.ID)]; dup {
-		return
+	k := hubKey(a.App, a.ID)
+	if _, dup := s.idx[k]; dup {
+		for i := range s.list { // replace the pre-send marker with the final status
+			if hubKey(s.list[i].App, s.list[i].ID) == k {
+				s.list[i] = a
+			}
+		}
+	} else {
+		s.list = append(s.list, a)
 	}
-	s.list = append(s.list, a)
-	s.idx[hubKey(a.App, a.ID)] = a
+	s.idx[k] = a
 	if len(s.list) > hubSentKeep {
 		delete(s.idx, hubKey(s.list[0].App, s.list[0].ID))
 		s.list = s.list[1:]
@@ -186,7 +193,10 @@ func (s *hubSent) add(a hubAck) {
 	}
 }
 
-type hubMsg struct{ App, ID, To, Text string }
+type hubMsg struct {
+	App, ID, To, Text string
+	CreatedAt         int64 // unix seconds, set by the hub
+}
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
@@ -312,7 +322,16 @@ func (q *hubQueue) handle(ctx context.Context, m hubMsg) {
 			return
 		}
 	}
+	if m.CreatedAt > 0 && q.now().Unix()-m.CreatedAt > int64(hubMaxAge/time.Second) {
+		logger.InfoCF("whatsapp", "msg_hub message too old, dropped", map[string]any{"app": m.App})
+		return // the hub has marked it expired; an ack would be ignored
+	}
 	q.typing(ctx, m.To, q.rnd(hubTypeMin, hubTypeMax))
+	if ctx.Err() != nil {
+		return
+	}
+	// Persist before sending: a crash between send and ack must not send twice on redelivery.
+	q.sent.add(hubAck{App: m.App, ID: m.ID, Status: "failed", Error: "unconfirmed: restarted while sending"})
 	now := q.now()
 	q.global = append(q.global, now)
 	q.byRcpt[m.To] = append(q.byRcpt[m.To], now)
@@ -442,11 +461,12 @@ func (h *hubClient) session(ctx context.Context) error {
 func (h *hubClient) receive(data []byte) {
 	var raw struct {
 		Type, App, ID, To, Text string
+		CreatedAt               int64 `json:"created_at"`
 	}
 	if json.Unmarshal(data, &raw) != nil || raw.Type != "msg" || raw.App == "" || raw.ID == "" {
 		return // pong and unknown frames
 	}
-	m := hubMsg{App: raw.App, ID: raw.ID, To: raw.To, Text: raw.Text}
+	m := hubMsg{App: raw.App, ID: raw.ID, To: raw.To, Text: raw.Text, CreatedAt: raw.CreatedAt}
 	if !hubToRe.MatchString(m.To) || m.Text == "" {
 		h.q.finish(m, "failed", "invalid message")
 		return

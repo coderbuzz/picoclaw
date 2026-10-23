@@ -148,6 +148,27 @@ func TestHubQueueDecisions(t *testing.T) {
 			t.Fatalf("gap %v outside 2-6s", gap)
 		}
 	})
+	t.Run("marker persisted before send", func(t *testing.T) {
+		r := newHubRig(t, "628111111111")
+		var during hubAck
+		r.q.send = func(context.Context, string, string) error {
+			during, _ = loadHubSent(r.q.sent.path).get("app", "1") // what a crash right now would leave
+			return nil
+		}
+		r.handle("1", "628111111111")
+		final, _ := loadHubSent(r.q.sent.path).get("app", "1")
+		if during.Status != "failed" || final.Status != "sent" || len(r.q.sent.list) != 1 {
+			t.Fatalf("during=%v final=%v list=%v", during, final, r.q.sent.list)
+		}
+	})
+	t.Run("too old is dropped without ack", func(t *testing.T) {
+		r := newHubRig(t, "628111111111")
+		old := r.clk.now().Add(-hubMaxAge - time.Minute).Unix()
+		r.q.handle(context.Background(), hubMsg{App: "app", ID: "1", To: "628111111111", Text: "hi", CreatedAt: old})
+		if len(r.sends) != 0 || len(r.acks) != 0 {
+			t.Fatalf("acks=%v sends=%v", r.acks, r.sends)
+		}
+	})
 	t.Run("send failure acks failed without number", func(t *testing.T) {
 		r := newHubRig(t, "628111111111")
 		r.q.send = func(_ context.Context, to, _ string) error { return fmt.Errorf("boom %s", to) }
@@ -193,7 +214,7 @@ func TestHubClientRoundTrip(t *testing.T) {
 			return
 		}
 		defer ws.Close()
-		_ = ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"msg","app":"app","id":"m1","to":"628111111111","text":"hi","created_at":1}`))
+		_ = ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type":"msg","app":"app","id":"m1","to":"628111111111","text":"hi","created_at":%d}`, time.Now().Unix())))
 		for {
 			_, data, err := ws.ReadMessage()
 			if err != nil {
