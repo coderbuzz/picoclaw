@@ -64,6 +64,8 @@ type WhatsAppNativeChannel struct {
 	wg           sync.WaitGroup // tracks background goroutines (QR handler, reconnect, media)
 	mediaSem     chan struct{}  // bounds concurrent media transfers (RAM)
 	dmHooks      []dmWebhook
+	dmReg        *dmRegistry // nil = no dm_apps.d folder
+	dmLimit      dmRateLimiter
 	dmClient     *http.Client
 	sendText     func(ctx context.Context, chatID, text string) error // overridden in tests
 }
@@ -95,6 +97,9 @@ func NewWhatsAppNativeChannel(
 		mediaSem:    make(chan struct{}, maxConcurrentMedia),
 		dmHooks:     hooks,
 		dmClient:    newDMWebhookClient(),
+	}
+	if dir := config.ConfigDir(); dir != "" {
+		c.dmReg = newDMRegistry(filepath.Join(dir, dmAppsDir))
 	}
 	return c, nil
 }
@@ -401,7 +406,11 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 	// dm_webhooks is an explicit opt-in per pattern and the endpoint authenticates by signature, so it
 	// runs before allow_from; matching messages never reach the agent.
 	if !isGroup && att == nil {
-		if h := matchDMWebhook(c.dmHooks, content); h != nil {
+		h := matchDMWebhook(c.dmHooks, content)
+		if h == nil && c.dmReg != nil {
+			h = matchDMWebhook(c.dmReg.current(), content)
+		}
+		if h != nil {
 			c.markRead(evt)
 			c.runDMWebhook(h, evt, content)
 			return
@@ -521,6 +530,14 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 func (c *WhatsAppNativeChannel) runDMWebhook(h *dmWebhook, evt *events.Message, text string) {
 	pn, lid := dmSenderPNLID(evt.Info.Sender, evt.Info.SenderAlt, c.counterpartJID)
 	chatID := evt.Info.Chat.String()
+	key := pn
+	if key == "" {
+		key = lid
+	}
+	if !c.dmLimit.allow(key) {
+		logger.WarnCF("whatsapp", "dm webhook rate limited, dropped", map[string]any{"app": h.name})
+		return
+	}
 	payload := dmWebhookPayload{
 		MessageID: evt.Info.ID,
 		Text:      text,
@@ -538,8 +555,9 @@ func (c *WhatsAppNativeChannel) runDMWebhook(h *dmWebhook, evt *events.Message, 
 	c.reconnectMu.Unlock()
 	go func() {
 		defer c.wg.Done()
+		start := time.Now()
 		reply, status, err := h.call(c.runCtx, c.dmClient, payload)
-		fields := map[string]any{"pattern": h.pattern, "status": status}
+		fields := map[string]any{"app": h.name, "status": status, "latency_ms": time.Since(start).Milliseconds()}
 		if err != nil {
 			logger.WarnCF("whatsapp", "dm webhook failed", fields)
 			reply = h.errorReply

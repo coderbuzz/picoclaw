@@ -219,7 +219,13 @@ PicoClaw can connect to WhatsApp in two ways:
 - Because the pattern is an explicit opt-in and the endpoint verifies a signature, a match is handled before `allow_from`.
 - The bot POSTs JSON `{"message_id","text","sender_pn","sender_lid","chat_id","timestamp"}`. `sender_pn` is the digits-only phone number and is empty when WhatsApp has not yet revealed it for a LID sender (no `SenderAlt`, no LID mapping in the store); `sender_lid` is the LID user when known.
 - Headers: `X-Picoclaw-Timestamp` (epoch seconds) and `X-Picoclaw-Signature: sha256=<hex HMAC-SHA256(secret, timestamp + "." + body)>`. `secret_file` is read like a `file://` credential (relative to the config directory). `url` must be https (http only for loopback); redirects are not followed; timeout 10 s.
-- A `200` with `{"reply": "..."}` sends that text to the sender (an empty reply sends nothing). Any other status, timeout or invalid body sends `error_reply` (default: "Layanan sedang sibuk, coba lagi sebentar lagi."). Logs carry the pattern and HTTP status, never message text.
+- A `200` with `{"reply": "..."}` sends that text to the sender (an empty reply sends nothing). Any other status, timeout or invalid body sends `error_reply` (default: "Layanan sedang sibuk, coba lagi sebentar lagi."). Logs carry the app name, HTTP status and latency, never message text or numbers. Replies are read up to 4 KB.
+- **Rate limit:** at most 5 webhook matches per sender per rolling minute (config and registry apps alike); extra messages are dropped silently, without a call or a reply.
+- **App registry (`<config dir>/dm_apps.d/*.json`):** one file per app, no config option; a missing folder means no apps. Config `dm_webhooks` are matched first, then registry apps sorted by file name. The folder is re-checked on incoming DMs (at most every 2 s, by file and secret mtimes), so adding, editing or removing a file needs no restart.
+  ```json
+  {"prefix":"NALAR","url":"https://example.com/api/wa/masuk","secret_file":"secrets/nalar-webhook","pattern":"(?i)NALAR\\s+[A-Z0-9]{8}","error_reply":"...","enabled":true}
+  ```
+  `prefix` is required (`^[A-Z][A-Z0-9]{1,15}$`). `pattern` is optional (default `(?i)<PREFIX>\s+[A-Z0-9]{6,12}`) and always matches the whole text. `enabled` defaults to true. `url` and `secret_file` follow the rules above. A file is skipped with a warning (file name and reason, never the secret) if it is invalid, its secret is unreadable, or it is group/other-writable; files sharing a prefix (case-insensitive) are all rejected.
 
 If `session_store_path` is empty, the session is stored in `<workspace>/whatsapp/`. Run `picoclaw gateway`; on first run, scan the QR code printed in the terminal with WhatsApp → Linked Devices.
 
