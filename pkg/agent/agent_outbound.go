@@ -44,7 +44,13 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 		return
 	}
 
-	alreadySentToSameChat := al.messageToolSentTo(al.GetRegistry().GetDefaultAgent(), sessionKey, channel, chatID)
+	// Any agent: a DM routed to a non-default agent used that agent's message tool.
+	alreadySentToSameChat := false
+	al.GetRegistry().ForEachTool("message", func(t tools.Tool) {
+		if mt, ok := t.(*tools.MessageTool); ok && mt.HasSentTo(sessionKey, channel, chatID) {
+			alreadySentToSameChat = true
+		}
+	})
 	if !alreadySentToSameChat && chatTypeForTarget(channel, chatID) == "group" {
 		// Cron/system turns to a group run in the routed agent's route session,
 		// not under the caller's key (see ProcessDirectWithChannel).
