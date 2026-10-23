@@ -155,3 +155,20 @@ func TestPublishResponseIfNeeded_GroupCronDedupsAgainstRouteSession(t *testing.T
 		}
 	}
 }
+
+func TestPublishResponseIfNeeded_RoutedAgentMessageToolSuppressesFinal(t *testing.T) {
+	const chat = "628000000000@s.whatsapp.net"
+	al, _ := newGroupRoutingLoop(t, "whatsapp")
+	cm := &recordingChannelManager{}
+	al.channelManager = cm
+	grp, _ := al.registry.GetAgent("grp")
+	mt := tools.NewMessageTool()
+	mt.SetSendCallback(func(context.Context, string, string, string, string, []bus.MediaPart) error { return nil })
+	grp.Tools.Register(mt)
+	mt.Execute(tools.WithToolSessionContext(context.Background(), "grp", "dm-session", nil),
+		map[string]any{"content": "x", "channel": "whatsapp", "chat_id": chat})
+	al.PublishResponseIfNeeded(context.Background(), "whatsapp", chat, "dm-session", "internal summary")
+	if len(cm.dismissed) != 1 {
+		t.Fatalf("final reply was not suppressed: dismissed=%v", cm.dismissed)
+	}
+}
