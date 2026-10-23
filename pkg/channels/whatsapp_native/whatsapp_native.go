@@ -10,6 +10,7 @@ package whatsapp
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -70,6 +71,37 @@ type WhatsAppNativeChannel struct {
 	hubToken     string                                               // msg_hub bearer token, read at construction
 	contacts     *dmContacts                                          // nil unless msg_hub is configured
 	sendText     func(ctx context.Context, chatID, text string) error // overridden in tests
+	seen         seenIDs                                              // inbound message IDs already handled
+}
+
+// seenIDs remembers message IDs for an hour: a message that failed to decrypt can arrive again
+// (sender retry, phone resend) and must not reach the agent or a dm_webhook twice.
+type seenIDs struct {
+	mu sync.Mutex
+	m  map[string]time.Time
+}
+
+const seenTTL = time.Hour
+
+// first reports whether id is new, and remembers it.
+func (s *seenIDs) first(id string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.m == nil {
+		s.m = map[string]time.Time{}
+	}
+	if t, ok := s.m[id]; ok && now.Sub(t) < seenTTL {
+		return false
+	}
+	if len(s.m) >= 1000 {
+		for k, t := range s.m {
+			if now.Sub(t) >= seenTTL {
+				delete(s.m, k)
+			}
+		}
+	}
+	s.m[id] = now
+	return true
 }
 
 // NewWhatsAppNativeChannel creates a WhatsApp channel that uses whatsmeow for connection.
@@ -378,7 +410,8 @@ func (c *WhatsAppNativeChannel) reconnectWithBackoff() {
 
 		logger.InfoCF("whatsapp", "WhatsApp reconnecting", map[string]any{"backoff": backoff.String()})
 		err := client.Connect()
-		if err == nil {
+		// whatsmeow's own auto-reconnect may have won the race; retrying would loop forever.
+		if err == nil || errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 			logger.InfoC("whatsapp", "WhatsApp reconnected")
 			return
 		}
@@ -405,6 +438,10 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 	if evt.Info.IsFromMe {
+		return
+	}
+	if !c.seen.first(evt.Info.ID, time.Now()) {
+		logger.InfoC("whatsapp", "duplicate inbound message ignored")
 		return
 	}
 	isGroup := evt.Info.Chat.Server == types.GroupServer

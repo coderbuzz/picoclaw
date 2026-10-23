@@ -216,3 +216,35 @@ func TestDMWebhook_NoMatchAndGroupPassThrough(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 }
+
+func TestDMWebhook_DuplicateMessageIDHandledOnce(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	h := newDMHarness(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"reply":"ok"}`))
+	}))
+	h.ch.handleIncoming(dmEvent(dmLID, "MASUK ABCD1234"))
+	h.ch.handleIncoming(dmEvent(dmLID, "MASUK ABCD1234")) // same ID redelivered after a decrypt retry
+	h.wantSent(t)
+	select {
+	case s := <-h.sent:
+		t.Fatalf("second reply %q", s)
+	case <-time.After(300 * time.Millisecond):
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("webhook called %d times", calls)
+	}
+}
+
+func TestSeenIDsExpire(t *testing.T) {
+	var s seenIDs
+	t0 := time.Unix(1700000000, 0)
+	if !s.first("a", t0) || s.first("a", t0.Add(time.Minute)) || !s.first("a", t0.Add(seenTTL)) {
+		t.Fatal("seenIDs")
+	}
+}
