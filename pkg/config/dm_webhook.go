@@ -52,7 +52,7 @@ func (s *WhatsAppSettings) ValidateDMWebhooks() error {
 	return nil
 }
 
-// validateChannelDMWebhooks surfaces invalid dm_webhooks at config load time.
+// validateChannelDMWebhooks surfaces invalid dm_webhooks and msg_hub at config load time.
 func (c *Config) validateChannelDMWebhooks() error {
 	for name, bc := range c.Channels {
 		decoded, err := bc.GetDecoded()
@@ -62,6 +62,11 @@ func (c *Config) validateChannelDMWebhooks() error {
 		if s, ok := decoded.(*WhatsAppSettings); ok {
 			if err := s.ValidateDMWebhooks(); err != nil {
 				return fmt.Errorf("channels.%s: %w", name, err)
+			}
+			if s.MsgHub != nil {
+				if err := s.MsgHub.Validate(); err != nil {
+					return fmt.Errorf("channels.%s: msg_hub: %w", name, err)
+				}
 			}
 		}
 	}

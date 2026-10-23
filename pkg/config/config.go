@@ -592,6 +592,8 @@ type WhatsAppSettings struct {
 	DeviceOS string `json:"device_os" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_DEVICE_OS"`
 	// DMWebhooks hands matching direct messages to an HTTPS endpoint instead of the agent.
 	DMWebhooks []DMWebhook `json:"dm_webhooks" yaml:"-"`
+	// MsgHub receives outbound notifications from a message hub (nil = off).
+	MsgHub *MsgHubConfig `json:"msg_hub" yaml:"-"`
 }
 
 type TelegramSettings struct {
