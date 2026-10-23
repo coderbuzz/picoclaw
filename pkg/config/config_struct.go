@@ -290,12 +290,24 @@ func (s *SecureString) fromRaw(v string) error {
 var (
 	secResolverMu sync.RWMutex
 	secResolver   *credential.Resolver
+	secConfigDir  string
 )
+
+// ConfigDir returns the directory file:// credentials resolve against ("" before a config is loaded).
+func ConfigDir() string {
+	secResolverMu.RLock()
+	defer secResolverMu.RUnlock()
+	return secConfigDir
+}
+
+// SetConfigDir points file:// credentials at dir (LoadConfig does this; exposed for tests of other packages).
+func SetConfigDir(dir string) { updateResolver(dir) }
 
 func updateResolver(path string) {
 	secResolverMu.Lock()
 	defer secResolverMu.Unlock()
 	secResolver = credential.NewResolver(path)
+	secConfigDir = path
 }
 
 func resolveKey(v string) (string, error) {

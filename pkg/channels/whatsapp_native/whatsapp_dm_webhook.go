@@ -24,13 +24,13 @@ import (
 
 const (
 	dmWebhookTimeout      = 10 * time.Second
-	dmWebhookMaxReply     = 64 << 10
+	dmWebhookMaxReply     = 4 << 10
 	dmWebhookDefaultError = "Layanan sedang sibuk, coba lagi sebentar lagi."
 )
 
 type dmWebhook struct {
 	re         *regexp.Regexp
-	pattern    string
+	name       string // for logs: "dm_webhooks[i]" or the registry file name
 	url        string
 	secret     []byte
 	errorReply string
@@ -53,23 +53,32 @@ func compileDMWebhooks(s *config.WhatsAppSettings) ([]dmWebhook, error) {
 	}
 	var out []dmWebhook
 	for i, w := range s.DMWebhooks {
-		secret, err := w.Secret()
+		h, err := buildDMWebhook(fmt.Sprintf("dm_webhooks[%d]", i), w)
 		if err != nil {
-			return nil, fmt.Errorf("dm_webhooks[%d]: secret_file: %w", i, err)
+			return nil, err
 		}
-		reply := w.ErrorReply
-		if reply == "" {
-			reply = dmWebhookDefaultError
-		}
-		out = append(out, dmWebhook{
-			re:         regexp.MustCompile("^(?:" + w.Pattern + ")$"),
-			pattern:    w.Pattern,
-			url:        w.URL,
-			secret:     []byte(secret),
-			errorReply: reply,
-		})
+		out = append(out, h)
 	}
 	return out, nil
+}
+
+// buildDMWebhook reads the secret and compiles the whole-text pattern; w must already be validated.
+func buildDMWebhook(name string, w config.DMWebhook) (dmWebhook, error) {
+	secret, err := w.Secret()
+	if err != nil {
+		return dmWebhook{}, fmt.Errorf("%s: secret_file: %w", name, err)
+	}
+	reply := w.ErrorReply
+	if reply == "" {
+		reply = dmWebhookDefaultError
+	}
+	return dmWebhook{
+		re:         regexp.MustCompile("^(?:" + w.Pattern + ")$"),
+		name:       name,
+		url:        w.URL,
+		secret:     []byte(secret),
+		errorReply: reply,
+	}, nil
 }
 
 // matchDMWebhook returns the first webhook whose pattern matches the whole text.

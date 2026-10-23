@@ -23,22 +23,30 @@ func (w DMWebhook) Secret() (string, error) {
 	return resolveKey("file://" + w.SecretFile)
 }
 
+// ValidateDMWebhookFields checks one webhook's pattern, url and secret_file (shared with the dm_apps.d registry).
+func ValidateDMWebhookFields(pattern, rawURL, secretFile string) error {
+	if _, err := regexp.Compile("^(?:" + pattern + ")$"); err != nil || pattern == "" {
+		return fmt.Errorf("invalid pattern")
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("invalid url")
+	}
+	loopback := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"
+	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
+		return fmt.Errorf("url must be https (http only for loopback)")
+	}
+	if strings.TrimSpace(secretFile) == "" {
+		return fmt.Errorf("secret_file is required")
+	}
+	return nil
+}
+
 // ValidateDMWebhooks checks patterns and URLs; it does not read the secret files.
 func (s *WhatsAppSettings) ValidateDMWebhooks() error {
 	for i, w := range s.DMWebhooks {
-		if _, err := regexp.Compile("^(?:" + w.Pattern + ")$"); err != nil || w.Pattern == "" {
-			return fmt.Errorf("dm_webhooks[%d]: invalid pattern", i)
-		}
-		u, err := url.Parse(w.URL)
-		if err != nil || u.Host == "" {
-			return fmt.Errorf("dm_webhooks[%d]: invalid url", i)
-		}
-		loopback := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"
-		if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
-			return fmt.Errorf("dm_webhooks[%d]: url must be https (http only for loopback)", i)
-		}
-		if strings.TrimSpace(w.SecretFile) == "" {
-			return fmt.Errorf("dm_webhooks[%d]: secret_file is required", i)
+		if err := ValidateDMWebhookFields(w.Pattern, w.URL, w.SecretFile); err != nil {
+			return fmt.Errorf("dm_webhooks[%d]: %w", i, err)
 		}
 	}
 	return nil

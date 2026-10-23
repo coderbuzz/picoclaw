@@ -93,7 +93,7 @@ func newDMHarness(t *testing.T, url string, handler http.Handler) *dmHarness {
 		config:      &config.WhatsAppSettings{},
 		runCtx:      context.Background(),
 		dmHooks: []dmWebhook{{
-			re: regexp.MustCompile(`^(?:MASUK [A-Z0-9]{8})$`), pattern: "MASUK", url: srv.URL,
+			re: regexp.MustCompile(`^(?:MASUK [A-Z0-9]{8})$`), name: "test", url: srv.URL,
 			secret: []byte("s3cret"), errorReply: "oops",
 		}},
 		dmClient: srv.Client(),
