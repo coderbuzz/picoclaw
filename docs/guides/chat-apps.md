@@ -227,6 +227,23 @@ PicoClaw can connect to WhatsApp in two ways:
   ```
   `prefix` is required (`^[A-Z][A-Z0-9]{1,15}$`). `pattern` is optional (default `(?i)<PREFIX>\s+[A-Z0-9]{6,12}`) and always matches the whole text. `enabled` defaults to true. `url` and `secret_file` follow the rules above. A file is skipped with a warning (file name and reason, never the secret) if it is invalid, its secret is unreadable, or it is group/other-writable; files sharing a prefix (case-insensitive) are all rejected.
 
+**msg_hub (outbound notifications, native)**
+
+`msg_hub` lets your own apps send a WhatsApp message through a WebSocket hub instead of the agent. Default: off (omit the key).
+
+```json
+"settings": {
+  "msg_hub": { "url": "wss://hub.example.com", "token_file": "secrets/msg-hub-token" }
+}
+```
+
+- The bot keeps one connection to `<url>/subscribe?topic=whatsapp` with `Authorization: Bearer <token>` (`token_file` is read like a `file://` credential; `url` must be wss, ws only for loopback). It reconnects with backoff (1 s doubling to 60 s) and pings every 30 s.
+- The hub pushes `{"type":"msg","app","id","to","text","created_at"}`; the bot answers with a final `{"type":"ack","app","id","status","error"}`: `sent`, `rejected_unknown_contact`, `rate_limited` or `failed`. Delivery is at-least-once; the last 2000 acked `(app,id)` are kept in `<session store>/msg_hub_sent.json` and a repeat is re-acked, never re-sent.
+- **Contact rule:** only numbers that sent the bot a DM in the last 30 days (groups do not count) are messaged. Numbers are recorded from every inbound DM, including dm_webhook matches, in `<session store>/dm_contacts.json` (mode 600, older entries pruned). Anyone else gets `rejected_unknown_contact`.
+- **Limits:** at most 5 messages per recipient per hour and 200 per rolling 24 h (counted in memory, reset on restart); beyond that `rate_limited`.
+- **Pacing:** one queue, one sender. Each message waits until 2-6 s (random) after the previous one, shows "typing..." for 1-3 s, then is sent. While WhatsApp is not connected nothing is sent or acked. A full queue (500) leaves the message un-acked for the hub to redeliver.
+- Logs carry the app name, status and counts, never message text, numbers or the token.
+
 If `session_store_path` is empty, the session is stored in `<workspace>/whatsapp/`. Run `picoclaw gateway`; on first run, scan the QR code printed in the terminal with WhatsApp → Linked Devices.
 
 </details>

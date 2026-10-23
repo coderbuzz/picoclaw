@@ -67,6 +67,8 @@ type WhatsAppNativeChannel struct {
 	dmReg        *dmRegistry // nil = no dm_apps.d folder
 	dmLimit      dmRateLimiter
 	dmClient     *http.Client
+	hubToken     string                                               // msg_hub bearer token, read at construction
+	contacts     *dmContacts                                          // nil unless msg_hub is configured
 	sendText     func(ctx context.Context, chatID, text string) error // overridden in tests
 }
 
@@ -90,7 +92,14 @@ func NewWhatsAppNativeChannel(
 	if err != nil {
 		return nil, err
 	}
+	hubToken := ""
+	if cfg.MsgHub != nil {
+		if hubToken, err = cfg.MsgHub.Token(); err != nil {
+			return nil, fmt.Errorf("msg_hub: token_file: %w", err)
+		}
+	}
 	c := &WhatsAppNativeChannel{
+		hubToken:    hubToken,
 		BaseChannel: base,
 		config:      cfg,
 		storePath:   storePath,
@@ -157,6 +166,9 @@ func (c *WhatsAppNativeChannel) Start(ctx context.Context) error {
 	// the QR-login flow.
 	c.runCtx, c.runCancel = context.WithCancel(ctx)
 
+	if c.config.MsgHub != nil { // before events can arrive
+		c.contacts = loadDMContacts(filepath.Join(c.storePath, hubContactsFile), time.Now)
+	}
 	client.AddEventHandler(c.eventHandler)
 
 	c.mu.Lock()
@@ -238,6 +250,9 @@ func (c *WhatsAppNativeChannel) Start(ctx context.Context) error {
 		}
 	}
 
+	if !c.startMsgHub() {
+		return fmt.Errorf("channel stopped during msg_hub setup")
+	}
 	startOK = true
 	c.SetRunning(true)
 	logger.InfoC("whatsapp", "WhatsApp native channel connected")
@@ -286,6 +301,8 @@ func (c *WhatsAppNativeChannel) Stop(ctx context.Context) error {
 		// Context canceled or timed out; log and proceed with best-effort cleanup.
 		logger.WarnC("whatsapp", fmt.Sprintf("Stop context canceled before all goroutines finished: %v", ctx.Err()))
 	}
+
+	c.contacts.flush()
 
 	// Now it is safe to clear and close resources.
 	c.mu.Lock()
@@ -401,6 +418,10 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 
 	if content == "" && att == nil {
 		return
+	}
+
+	if !isGroup {
+		c.recordContact(evt)
 	}
 
 	// dm_webhooks is an explicit opt-in per pattern and the endpoint authenticates by signature, so it
@@ -524,6 +545,15 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 	c.runMediaTask(deliver)
+}
+
+// recordContact notes the sender's phone number for msg_hub's "has DMed the bot" rule (LID senders resolve to a number).
+func (c *WhatsAppNativeChannel) recordContact(evt *events.Message) {
+	if c.contacts == nil || (evt.Info.Chat.Server != types.DefaultUserServer && evt.Info.Chat.Server != types.HiddenUserServer) {
+		return
+	}
+	pn, _ := dmSenderPNLID(evt.Info.Sender, evt.Info.SenderAlt, c.counterpartJID)
+	c.contacts.record(pn)
 }
 
 // runDMWebhook calls the webhook off the whatsmeow event loop and sends back its reply (or error_reply).
