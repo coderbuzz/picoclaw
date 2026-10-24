@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -475,6 +476,10 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		}
 	}
 
+	if !isGroup && c.config != nil && len(c.config.DMAllowFrom) > 0 && !c.dmAllowed(evt) {
+		return
+	}
+
 	mentioned := false
 	if isGroup {
 		mentioned = isTriggeredToBot(contextInfoOf(evt.Message), c.botJIDs())
@@ -582,6 +587,16 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 	c.runMediaTask(deliver)
+}
+
+// dmAllowed reports whether any form of the DM sender (number, LID, JID) is listed.
+func (c *WhatsAppNativeChannel) dmAllowed(evt *events.Message) bool {
+	for _, id := range senderIDs(evt.Info.Sender, evt.Info.SenderAlt, c.counterpartJID) {
+		if slices.Contains(c.config.DMAllowFrom, id) {
+			return true
+		}
+	}
+	return false
 }
 
 // recordContact notes the sender's phone number for msg_hub's "has DMed the bot" rule (LID senders resolve to a number).

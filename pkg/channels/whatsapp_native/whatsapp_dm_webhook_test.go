@@ -248,3 +248,23 @@ func TestSeenIDsExpire(t *testing.T) {
 		t.Fatal("seenIDs")
 	}
 }
+
+func TestDMAllowFrom_OthersSilentWebhookStillRuns(t *testing.T) {
+	h := newDMHarness(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"reply":"ok"}`))
+	}))
+	h.ch.config.DMAllowFrom = []string{"628999999999"}
+	h.ch.handleIncoming(dmEvent(dmLID, "halo"))
+	h.wantForwarded(t, false) // not listed: no agent
+
+	evt := dmEvent(dmLID, "MASUK ABCD1234")
+	evt.Info.ID = "mid2"
+	h.ch.handleIncoming(evt)
+	h.wantSent(t) // the webhook still answers anyone
+
+	h.ch.config.DMAllowFrom = []string{"628000000001"} // the sender's number (SenderAlt)
+	evt = dmEvent(dmLID, "halo")
+	evt.Info.ID = "mid3"
+	h.ch.handleIncoming(evt)
+	h.wantForwarded(t, true)
+}
