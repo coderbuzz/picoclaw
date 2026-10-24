@@ -227,6 +227,10 @@ PicoClaw can connect to WhatsApp in two ways:
   ```
   `prefix` is required (`^[A-Z][A-Z0-9]{1,15}$`). `pattern` is optional (default `(?i)<PREFIX>\s+[A-Z0-9]{6,12}`) and always matches the whole text. `enabled` defaults to true. `url` and `secret_file` follow the rules above. A file is skipped with a warning (file name and reason, never the secret) if it is invalid, its secret is unreadable, or it is group/other-writable; files sharing a prefix (case-insensitive) are all rejected.
 
+**dm_allow_from (native)**
+
+`"dm_allow_from": ["<number or LID>", ...]` in `settings`: when set, only these DM senders reach the agent; other DMs (text, stickers, media) get no reply. `dm_webhooks` still run first for everyone. Empty (default) keeps the old behaviour.
+
 **msg_hub (outbound notifications, native)**
 
 `msg_hub` lets your own apps send a WhatsApp message through a WebSocket hub instead of the agent. Default: off (omit the key).

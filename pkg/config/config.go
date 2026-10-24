@@ -581,6 +581,9 @@ type WhatsAppSettings struct {
 	// GroupPolicy: "open" (default, all groups), "allowlist" (only GroupAllowFrom), "disabled" (no groups).
 	GroupPolicy    string              `json:"group_policy"     yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_GROUP_POLICY"`
 	GroupAllowFrom FlexibleStringSlice `json:"group_allow_from" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_GROUP_ALLOW_FROM"`
+	// DMAllowFrom, when non-empty, limits which DM senders (number, LID or JID) reach the agent; others are
+	// ignored silently. dm_webhooks still run first for everyone.
+	DMAllowFrom FlexibleStringSlice `json:"dm_allow_from" yaml:"-"`
 	// MaxMediaBytes caps one incoming attachment download; 0 means the 20 MB default.
 	MaxMediaBytes int64 `json:"max_media_bytes" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_MAX_MEDIA_BYTES"`
 	// PairPhone (digits, with country code) requests an 8-character pairing code instead of scanning the QR.
