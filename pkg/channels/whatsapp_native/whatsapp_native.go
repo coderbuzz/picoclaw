@@ -53,26 +53,31 @@ const (
 // WhatsAppNativeChannel implements the WhatsApp channel using whatsmeow (in-process, no external bridge).
 type WhatsAppNativeChannel struct {
 	*channels.BaseChannel
-	config       *config.WhatsAppSettings
-	storePath    string
-	client       *whatsmeow.Client
-	container    *sqlstore.Container
-	mu           sync.Mutex
-	runCtx       context.Context
-	runCancel    context.CancelFunc
-	reconnectMu  sync.Mutex
-	reconnecting bool
-	stopping     atomic.Bool    // set once Stop begins; prevents new wg.Add calls
-	wg           sync.WaitGroup // tracks background goroutines (QR handler, reconnect, media)
-	mediaSem     chan struct{}  // bounds concurrent media transfers (RAM)
-	dmHooks      []dmWebhook
-	dmReg        *dmRegistry // nil = no dm_apps.d folder
-	dmLimit      dmRateLimiter
-	dmClient     *http.Client
-	hubToken     string                                               // msg_hub bearer token, read at construction
-	contacts     *dmContacts                                          // nil unless msg_hub is configured
-	sendText     func(ctx context.Context, chatID, text string) error // overridden in tests
-	seen         seenIDs                                              // inbound message IDs already handled
+	config         *config.WhatsAppSettings
+	storePath      string
+	client         *whatsmeow.Client
+	container      *sqlstore.Container
+	mu             sync.Mutex
+	runCtx         context.Context
+	runCancel      context.CancelFunc
+	reconnectMu    sync.Mutex
+	reconnecting   bool
+	stopping       atomic.Bool    // set once Stop begins; prevents new wg.Add calls
+	wg             sync.WaitGroup // tracks background goroutines (QR handler, reconnect, media)
+	mediaSem       chan struct{}  // bounds concurrent media transfers (RAM)
+	dmHooks        []dmWebhook
+	dmReg          *dmRegistry // nil = no dm_apps.d folder
+	dmLimit        dmRateLimiter
+	groupReg       *dmRegistry // nil = no group_apps.d folder
+	groupLimit     dmRateLimiter
+	appGroups      *appGroups // nil = no config dir
+	ginfo          groupInfoCache
+	fetchGroupInfo func(ctx context.Context, jid types.JID) (*types.GroupInfo, error) // overridden in tests
+	dmClient       *http.Client
+	hubToken       string                                               // msg_hub bearer token, read at construction
+	contacts       *dmContacts                                          // nil unless msg_hub is configured
+	sendText       func(ctx context.Context, chatID, text string) error // overridden in tests
+	seen           seenIDs                                              // inbound message IDs already handled
 }
 
 // seenIDs remembers message IDs for an hour: a message that failed to decrypt can arrive again
@@ -142,6 +147,8 @@ func NewWhatsAppNativeChannel(
 	}
 	if dir := config.ConfigDir(); dir != "" {
 		c.dmReg = newDMRegistry(filepath.Join(dir, dmAppsDir))
+		c.groupReg = newGroupRegistry(filepath.Join(dir, groupAppsDir))
+		c.appGroups = &appGroups{dir: filepath.Join(dir, appGroupsDir)}
 	}
 	return c, nil
 }
@@ -446,6 +453,10 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 	isGroup := evt.Info.Chat.Server == types.GroupServer
+	// group_apps.d applies to every group, allowlisted or not, so it runs before group_policy.
+	if isGroup && c.tryGroupApp(evt) {
+		return
+	}
 	if isGroup && !groupAllowed(c.config.GroupPolicy, c.config.GroupAllowFrom, evt.Info.Chat) {
 		return
 	}
@@ -628,15 +639,7 @@ func (c *WhatsAppNativeChannel) runDMWebhook(h *dmWebhook, evt *events.Message, 
 		ChatID:    chatID,
 		Timestamp: evt.Info.Timestamp.Unix(),
 	}
-	c.reconnectMu.Lock()
-	if c.stopping.Load() {
-		c.reconnectMu.Unlock()
-		return
-	}
-	c.wg.Add(1)
-	c.reconnectMu.Unlock()
-	go func() {
-		defer c.wg.Done()
+	c.goTracked(func() {
 		start := time.Now()
 		reply, status, err := h.call(c.runCtx, c.dmClient, payload)
 		fields := map[string]any{"app": h.name, "status": status, "latency_ms": time.Since(start).Milliseconds()}
@@ -649,17 +652,10 @@ func (c *WhatsAppNativeChannel) runDMWebhook(h *dmWebhook, evt *events.Message, 
 		if reply == "" {
 			return
 		}
-		send := c.sendText
-		if send == nil {
-			send = func(ctx context.Context, chatID, text string) error {
-				_, err := c.Send(ctx, bus.OutboundMessage{Channel: "whatsapp", ChatID: chatID, Content: text})
-				return err
-			}
-		}
-		if err := send(c.runCtx, chatID, reply); err != nil {
+		if err := c.sendTo(chatID, reply); err != nil {
 			logger.WarnCF("whatsapp", "dm webhook reply not sent", map[string]any{"error": err.Error()})
 		}
-	}()
+	})
 }
 
 // botJIDs returns the bot's own phone-number JID and LID (empty until paired).
@@ -733,6 +729,9 @@ func (c *WhatsAppNativeChannel) Send(ctx context.Context, msg bus.OutboundMessag
 	}
 
 	if _, err = client.SendMessage(ctx, to, waMsg); err != nil {
+		if errors.Is(err, whatsmeow.ErrNotInGroup) || errors.Is(err, whatsmeow.ErrGroupNotFound) {
+			return nil, errNotParticipant
+		}
 		return nil, fmt.Errorf("whatsapp send: %w", channels.ErrTemporary)
 	}
 	return nil, nil

@@ -284,3 +284,71 @@ func TestHubClientRoundTrip(t *testing.T) {
 		t.Fatalf("auth=%v conns=%d pings=%d ack=%v sends=%v clean=%v", firstAuth, conns, pings, ackSeen, r.sends, cleanClose)
 	}
 }
+
+func TestHubQueueGroupTargets(t *testing.T) {
+	const grp = "1203630000000000@g.us"
+	linked := map[string]bool{"app\x00" + grp: true}
+	rig := func(t *testing.T) *hubRig {
+		r := newHubRig(t)
+		r.q.linked = func(app, g string) bool { return linked[app+"\x00"+g] }
+		return r
+	}
+	t.Run("unlinked group rejected, no send", func(t *testing.T) {
+		r := rig(t)
+		r.handle("1", "999999999999@g.us")
+		if r.lastStatus() != "rejected_unlinked_group" || len(r.sends) != 0 {
+			t.Fatalf("acks=%v sends=%v", r.acks, r.sends)
+		}
+		r.q.linked = nil
+		r.handle("2", grp)
+		if r.lastStatus() != "rejected_unlinked_group" {
+			t.Fatal("nil linked must fail closed")
+		}
+	})
+	t.Run("linked group sent without DM contact", func(t *testing.T) {
+		r := rig(t)
+		r.handle("1", grp)
+		if r.lastStatus() != "sent" || len(r.sends) != 1 {
+			t.Fatalf("acks=%v sends=%v", r.acks, r.sends)
+		}
+	})
+	t.Run("daily cap per group", func(t *testing.T) {
+		r := rig(t)
+		for i := range hubGroupMax + 1 {
+			r.handle(fmt.Sprint(i), grp)
+		}
+		if len(r.sends) != hubGroupMax || r.lastStatus() != "rate_limited" {
+			t.Fatalf("sends=%d last=%s", len(r.sends), r.lastStatus())
+		}
+		r.clk.t = r.clk.t.Add(hubGroupSpan + time.Minute)
+		r.handle("later", grp)
+		if r.lastStatus() != "sent" {
+			t.Fatal("window did not reopen")
+		}
+	})
+	t.Run("not a participant", func(t *testing.T) {
+		r := rig(t)
+		r.q.send = func(context.Context, string, string) error { return fmt.Errorf("x %s: %w", grp, errNotParticipant) }
+		r.handle("1", grp)
+		if a := r.acks[len(r.acks)-1]; a.Status != "failed" || a.Error != "not_participant" {
+			t.Fatalf("ack %+v", a)
+		}
+	})
+}
+
+func TestHubChatIDAndRecipientValidation(t *testing.T) {
+	if hubChatID("628111111111") != "628111111111@s.whatsapp.net" || hubChatID("1203630000000000@g.us") != "1203630000000000@g.us" {
+		t.Fatal("hubChatID")
+	}
+	for to, ok := range map[string]bool{"1203630000000000@g.us": true, "628111111111-1600000000@g.us": true, "12@g.us": false, "abc@g.us": false, "1203630000000000@s.whatsapp.net": false} {
+		if hubGroupRe.MatchString(to) != ok {
+			t.Errorf("%q want %v", to, ok)
+		}
+	}
+	r := newHubRig(t)
+	h := newHubClient("wss://x", "t", r.q)
+	h.receive([]byte(`{"type":"msg","app":"app","id":"1","to":"bad@g.us","text":"hi"}`))
+	if len(r.acks) != 1 || r.acks[0].Error != "invalid message" {
+		t.Fatalf("acks=%v", r.acks)
+	}
+}
