@@ -5,6 +5,7 @@ package whatsapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -44,9 +45,17 @@ const (
 	hubBackoffMax   = time.Minute
 	hubGoodSession  = time.Minute    // a session this long resets the reconnect backoff
 	hubMaxAge       = 24 * time.Hour // the hub expires older messages; never send them late
+	hubGroupMax     = 10             // posts per linked group per hubGroupSpan
+	hubGroupSpan    = 24 * time.Hour
 )
 
-var hubToRe = regexp.MustCompile(`^[0-9]{8,15}$`)
+var (
+	hubToRe    = regexp.MustCompile(`^[0-9]{8,15}$`)
+	hubGroupRe = regexp.MustCompile(`^[0-9]{5,30}(-[0-9]{1,15})?@g\.us$`)
+
+	// errNotParticipant is what Send returns when the bot is no longer in the target group.
+	errNotParticipant = errors.New("not_participant")
+)
 
 // dmContacts remembers when each phone number last sent the bot a DM (number -> unix seconds).
 type dmContacts struct {
@@ -212,6 +221,8 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // hubQueue is the single sender: it decides (dedupe, contact, limits), waits for WA, paces, sends, acks.
 type hubQueue struct {
 	contacts  *dmContacts
+	linked    func(app, group string) bool // nil = no group is linked
+	day       *dayCounter                  // bot-wide daily sends, shared with group app replies
 	sent      *hubSent
 	ack       func(hubAck)
 	connected func() bool
@@ -227,7 +238,6 @@ type hubQueue struct {
 	// below: sender goroutine only
 	last   time.Time
 	byRcpt map[string][]time.Time
-	global []time.Time
 }
 
 func newHubQueue() *hubQueue {
@@ -238,6 +248,7 @@ func newHubQueue() *hubQueue {
 		ch:      make(chan hubMsg, hubQueueSize),
 		pending: map[string]struct{}{},
 		byRcpt:  map[string][]time.Time{},
+		day:     &dayCounter{},
 	}
 }
 
@@ -283,10 +294,11 @@ func (q *hubQueue) finish(m hubMsg, status, errStr string) {
 // limited reports whether sending to `to` now would break the per-recipient or global cap.
 func (q *hubQueue) limited(to string) bool {
 	cut := q.now().Add(-hubGlobalSpan)
-	for len(q.global) > 0 && q.global[0].Before(cut) {
-		q.global = q.global[1:]
+	max, span := hubPerRcptMax, hubPerRcptSpan
+	if hubGroupRe.MatchString(to) {
+		max, span = hubGroupMax, hubGroupSpan
 	}
-	cut = q.now().Add(-hubPerRcptSpan)
+	cut = q.now().Add(-span)
 	r := q.byRcpt[to]
 	for len(r) > 0 && r[0].Before(cut) {
 		r = r[1:]
@@ -296,7 +308,7 @@ func (q *hubQueue) limited(to string) bool {
 	} else {
 		q.byRcpt[to] = r
 	}
-	return len(r) >= hubPerRcptMax || len(q.global) >= hubGlobalMax
+	return len(r) >= max || q.day.count("", q.now(), hubGlobalSpan) >= hubGlobalMax
 }
 
 func (q *hubQueue) handle(ctx context.Context, m hubMsg) {
@@ -304,7 +316,12 @@ func (q *hubQueue) handle(ctx context.Context, m hubMsg) {
 		q.ack(a)
 		return
 	}
-	if !q.contacts.has(m.To) {
+	if hubGroupRe.MatchString(m.To) {
+		if q.linked == nil || !q.linked(m.App, m.To) {
+			q.finish(m, "rejected_unlinked_group", "")
+			return
+		}
+	} else if !q.contacts.has(m.To) {
 		q.finish(m, "rejected_unknown_contact", "")
 		return
 	}
@@ -333,7 +350,7 @@ func (q *hubQueue) handle(ctx context.Context, m hubMsg) {
 	// Persist before sending: a crash between send and ack must not send twice on redelivery.
 	q.sent.add(hubAck{App: m.App, ID: m.ID, Status: "failed", Error: "unconfirmed: restarted while sending"})
 	now := q.now()
-	q.global = append(q.global, now)
+	q.day.add("", now)
 	q.byRcpt[m.To] = append(q.byRcpt[m.To], now)
 	err := q.send(ctx, m.To, m.Text)
 	q.last = q.now()
@@ -342,6 +359,9 @@ func (q *hubQueue) handle(ctx context.Context, m hubMsg) {
 	}
 	if err != nil {
 		e := strings.ReplaceAll(err.Error(), m.To, "")
+		if errors.Is(err, errNotParticipant) {
+			e = errNotParticipant.Error()
+		}
 		q.finish(m, "failed", e[:min(len(e), 100)])
 		return
 	}
@@ -467,7 +487,7 @@ func (h *hubClient) receive(data []byte) {
 		return // pong and unknown frames
 	}
 	m := hubMsg{App: raw.App, ID: raw.ID, To: raw.To, Text: raw.Text, CreatedAt: raw.CreatedAt}
-	if !hubToRe.MatchString(m.To) || m.Text == "" {
+	if !(hubToRe.MatchString(m.To) || hubGroupRe.MatchString(m.To)) || m.Text == "" {
 		h.q.finish(m, "failed", "invalid message")
 		return
 	}
@@ -485,11 +505,13 @@ func (c *WhatsAppNativeChannel) startMsgHub() bool {
 	}
 	q := newHubQueue()
 	q.contacts = c.contacts
+	q.linked = c.appGroups.has
+	q.day = &c.day
 	q.sent = loadHubSent(filepath.Join(c.storePath, hubSentFile))
 	q.connected = c.waReady
 	q.typing = c.hubTyping
 	q.send = func(ctx context.Context, to, text string) error {
-		_, err := c.Send(ctx, bus.OutboundMessage{Channel: "whatsapp", ChatID: to + "@s.whatsapp.net", Content: text})
+		_, err := c.Send(ctx, bus.OutboundMessage{Channel: "whatsapp", ChatID: hubChatID(to), Content: text})
 		return err
 	}
 	h := newHubClient(c.config.MsgHub.URL, c.hubToken, q)
@@ -516,10 +538,18 @@ func (c *WhatsAppNativeChannel) waReady() bool {
 
 // hubTyping shows "typing..." for d before a hub message.
 func (c *WhatsAppNativeChannel) hubTyping(ctx context.Context, to string, d time.Duration) {
-	stop, err := c.StartTyping(ctx, to+"@s.whatsapp.net")
+	stop, err := c.StartTyping(ctx, hubChatID(to))
 	if err != nil {
 		return
 	}
 	defer stop()
 	_ = sleepCtx(ctx, d)
+}
+
+// hubChatID maps a hub recipient (number or group JID) to a chat ID.
+func hubChatID(to string) string {
+	if hubGroupRe.MatchString(to) {
+		return to
+	}
+	return to + "@s.whatsapp.net"
 }

@@ -116,17 +116,17 @@ func signDMWebhook(secret []byte, timestamp int64, body []byte) string {
 	return "sha256=" + hex.EncodeToString(m.Sum(nil))
 }
 
-// call POSTs the payload and returns the reply text and HTTP status (0 when the request never completed).
-func (h *dmWebhook) call(ctx context.Context, client *http.Client, p dmWebhookPayload) (string, int, error) {
-	body, err := json.Marshal(p)
+// post sends the signed JSON payload and decodes the 200 response into out; status is 0 when the request never completed.
+func (h *dmWebhook) post(ctx context.Context, client *http.Client, payload, out any) (int, error) {
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", 0, err
+		return 0, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, dmWebhookTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url, bytes.NewReader(body))
 	if err != nil {
-		return "", 0, err
+		return 0, err
 	}
 	ts := time.Now().Unix()
 	req.Header.Set("Content-Type", "application/json")
@@ -134,19 +134,25 @@ func (h *dmWebhook) call(ctx context.Context, client *http.Client, p dmWebhookPa
 	req.Header.Set("X-Picoclaw-Signature", signDMWebhook(h.secret, ts, body))
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", 0, err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", resp.StatusCode, fmt.Errorf("status %d", resp.StatusCode)
+		return resp.StatusCode, fmt.Errorf("status %d", resp.StatusCode)
 	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, dmWebhookMaxReply)).Decode(out); err != nil {
+		return resp.StatusCode, fmt.Errorf("invalid reply body")
+	}
+	return resp.StatusCode, nil
+}
+
+// call POSTs the payload and returns the reply text and HTTP status (0 when the request never completed).
+func (h *dmWebhook) call(ctx context.Context, client *http.Client, p dmWebhookPayload) (string, int, error) {
 	var out struct {
 		Reply string `json:"reply"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, dmWebhookMaxReply)).Decode(&out); err != nil {
-		return "", resp.StatusCode, fmt.Errorf("invalid reply body")
-	}
-	return strings.TrimSpace(out.Reply), resp.StatusCode, nil
+	status, err := h.post(ctx, client, p, &out)
+	return strings.TrimSpace(out.Reply), status, err
 }
 
 // newDMWebhookClient never follows redirects: the signed body must only reach the configured URL.

@@ -46,10 +46,16 @@ type dmRegistry struct {
 	next     time.Time
 	fp       string
 	hooks    []dmWebhook
+	load     func(dir string) []dmWebhook
 }
 
 func newDMRegistry(dir string) *dmRegistry {
-	return &dmRegistry{dir: dir, interval: dmRegistryEvery, now: time.Now}
+	return &dmRegistry{dir: dir, interval: dmRegistryEvery, now: time.Now, load: func(d string) []dmWebhook { return loadApps(d, true) }}
+}
+
+// newGroupRegistry loads group_apps.d: same file format, but the pattern is required (no default).
+func newGroupRegistry(dir string) *dmRegistry {
+	return &dmRegistry{dir: dir, interval: dmRegistryEvery, now: time.Now, load: func(d string) []dmWebhook { return loadApps(d, false) }}
 }
 
 // current returns the loaded apps, re-checking the folder at most once per interval (no watcher goroutine).
@@ -59,7 +65,7 @@ func (r *dmRegistry) current() []dmWebhook {
 	if now := r.now(); !now.Before(r.next) {
 		r.next = now.Add(r.interval)
 		if fp := dmFingerprint(r.dir); fp != r.fp {
-			r.fp, r.hooks = fp, loadDMApps(r.dir)
+			r.fp, r.hooks = fp, r.load(r.dir)
 		}
 	}
 	return r.hooks
@@ -92,8 +98,10 @@ func dmFingerprint(dir string) string {
 	return b.String()
 }
 
-// loadDMApps loads every usable app sorted by file name; bad files are skipped with a warning (never the secret).
-func loadDMApps(dir string) []dmWebhook {
+func loadDMApps(dir string) []dmWebhook { return loadApps(dir, true) }
+
+// loadApps loads every usable app sorted by file name; bad files are skipped with a warning (never the secret).
+func loadApps(dir string, defaultPattern bool) []dmWebhook {
 	type app struct {
 		hook   dmWebhook
 		prefix string
@@ -102,7 +110,7 @@ func loadDMApps(dir string) []dmWebhook {
 	count := map[string]int{}
 	for _, p := range dmAppNames(dir) {
 		name := strings.TrimSuffix(filepath.Base(p), ".json")
-		h, prefix, enabled, err := loadDMApp(p, name)
+		h, prefix, enabled, err := loadDMApp(p, name, defaultPattern)
 		if err != nil {
 			logger.WarnCF("whatsapp", "dm app skipped", map[string]any{"app": name, "reason": err.Error()})
 			continue
@@ -124,7 +132,7 @@ func loadDMApps(dir string) []dmWebhook {
 	return out
 }
 
-func loadDMApp(path, name string) (h dmWebhook, prefix string, enabled bool, err error) {
+func loadDMApp(path, name string, defaultPattern bool) (h dmWebhook, prefix string, enabled bool, err error) {
 	st, err := os.Stat(path)
 	if err != nil {
 		return h, "", false, err
@@ -143,7 +151,7 @@ func loadDMApp(path, name string) (h dmWebhook, prefix string, enabled bool, err
 	if !dmPrefixRe.MatchString(f.Prefix) {
 		return h, "", false, fmt.Errorf("invalid prefix")
 	}
-	if f.Pattern == "" {
+	if f.Pattern == "" && defaultPattern {
 		f.Pattern = `(?i)` + f.Prefix + `\s+[A-Z0-9]{6,12}`
 	}
 	if err := config.ValidateDMWebhookFields(f.Pattern, f.URL, f.SecretFile); err != nil {
@@ -151,6 +159,9 @@ func loadDMApp(path, name string) (h dmWebhook, prefix string, enabled bool, err
 	}
 	if f.Enabled != nil && !*f.Enabled {
 		return h, f.Prefix, false, nil
+	}
+	if !defaultPattern {
+		f.Pattern = `(?i)` + f.Pattern // group texts are matched case-insensitively
 	}
 	h, err = buildDMWebhook(name, config.DMWebhook{Pattern: f.Pattern, URL: f.URL, SecretFile: f.SecretFile, ErrorReply: f.ErrorReply})
 	if err != nil {
