@@ -222,6 +222,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 type hubQueue struct {
 	contacts  *dmContacts
 	linked    func(app, group string) bool // nil = no group is linked
+	day       *dayCounter                  // bot-wide daily sends, shared with group app replies
 	sent      *hubSent
 	ack       func(hubAck)
 	connected func() bool
@@ -237,7 +238,6 @@ type hubQueue struct {
 	// below: sender goroutine only
 	last   time.Time
 	byRcpt map[string][]time.Time
-	global []time.Time
 }
 
 func newHubQueue() *hubQueue {
@@ -248,6 +248,7 @@ func newHubQueue() *hubQueue {
 		ch:      make(chan hubMsg, hubQueueSize),
 		pending: map[string]struct{}{},
 		byRcpt:  map[string][]time.Time{},
+		day:     &dayCounter{},
 	}
 }
 
@@ -293,9 +294,6 @@ func (q *hubQueue) finish(m hubMsg, status, errStr string) {
 // limited reports whether sending to `to` now would break the per-recipient or global cap.
 func (q *hubQueue) limited(to string) bool {
 	cut := q.now().Add(-hubGlobalSpan)
-	for len(q.global) > 0 && q.global[0].Before(cut) {
-		q.global = q.global[1:]
-	}
 	max, span := hubPerRcptMax, hubPerRcptSpan
 	if hubGroupRe.MatchString(to) {
 		max, span = hubGroupMax, hubGroupSpan
@@ -310,7 +308,7 @@ func (q *hubQueue) limited(to string) bool {
 	} else {
 		q.byRcpt[to] = r
 	}
-	return len(r) >= max || len(q.global) >= hubGlobalMax
+	return len(r) >= max || q.day.count("", q.now(), hubGlobalSpan) >= hubGlobalMax
 }
 
 func (q *hubQueue) handle(ctx context.Context, m hubMsg) {
@@ -352,7 +350,7 @@ func (q *hubQueue) handle(ctx context.Context, m hubMsg) {
 	// Persist before sending: a crash between send and ack must not send twice on redelivery.
 	q.sent.add(hubAck{App: m.App, ID: m.ID, Status: "failed", Error: "unconfirmed: restarted while sending"})
 	now := q.now()
-	q.global = append(q.global, now)
+	q.day.add("", now)
 	q.byRcpt[m.To] = append(q.byRcpt[m.To], now)
 	err := q.send(ctx, m.To, m.Text)
 	q.last = q.now()
@@ -508,6 +506,7 @@ func (c *WhatsAppNativeChannel) startMsgHub() bool {
 	q := newHubQueue()
 	q.contacts = c.contacts
 	q.linked = c.appGroups.has
+	q.day = &c.day
 	q.sent = loadHubSent(filepath.Join(c.storePath, hubSentFile))
 	q.connected = c.waReady
 	q.typing = c.hubTyping

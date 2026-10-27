@@ -71,6 +71,7 @@ type WhatsAppNativeChannel struct {
 	groupReg       *dmRegistry // nil = no group_apps.d folder
 	groupLimit     dmRateLimiter
 	appGroups      *appGroups // nil = no config dir
+	day            dayCounter // daily send counts shared by msg_hub and group app replies
 	ginfo          groupInfoCache
 	fetchGroupInfo func(ctx context.Context, jid types.JID) (*types.GroupInfo, error) // overridden in tests
 	dmClient       *http.Client

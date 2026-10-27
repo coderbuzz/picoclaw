@@ -215,3 +215,30 @@ func TestAppGroupsRejectsUnsafeAppName(t *testing.T) {
 		t.Fatal("unsafe app name accepted")
 	}
 }
+
+func TestGroupApp_ReplyDailyCaps(t *testing.T) {
+	g := newGroupRig(t, `{"reply":"ok"}`)
+	for i := range groupReplyDay + 3 {
+		if got, want := g.ch.allowReply(testGroup.String()), i < groupReplyDay; got != want {
+			t.Fatalf("reply %d allowed=%v", i, got)
+		}
+	}
+	if !g.ch.allowReply("other@g.us") {
+		t.Fatal("cap must be per group")
+	}
+	// the bot-wide cap is shared: group replies count toward it
+	for range hubGlobalMax {
+		g.ch.day.add("", time.Now())
+	}
+	if g.ch.allowReply("third@g.us") {
+		t.Fatal("global cap not applied")
+	}
+	// and hub sends count too, in the same counter
+	r := newHubRig(t, "628111111111")
+	r.q.day = &g.ch.day
+	r.q.now = time.Now
+	r.handle("1", "628111111111")
+	if r.lastStatus() != "rate_limited" {
+		t.Fatalf("hub ignored shared counter: %s", r.lastStatus())
+	}
+}

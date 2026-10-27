@@ -31,6 +31,7 @@ const (
 	groupReplyMax  = 1000 // runes
 	groupInfoTTL   = 5 * time.Minute
 	groupInfoLimit = 15 * time.Second
+	groupReplyDay  = 20 // webhook replies per group per day
 )
 
 var appNameRe = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
@@ -75,6 +76,47 @@ func senderAdmin(info *types.GroupInfo, pn, lid string) *bool {
 		}
 	}
 	return nil
+}
+
+// dayCounter counts events per key in a rolling window; key "" is the bot-wide total.
+type dayCounter struct {
+	mu   sync.Mutex
+	hits map[string][]time.Time
+}
+
+func (d *dayCounter) count(key string, now time.Time, span time.Duration) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	h := d.hits[key]
+	for len(h) > 0 && h[0].Before(now.Add(-span)) {
+		h = h[1:]
+	}
+	if len(h) == 0 {
+		delete(d.hits, key)
+	} else {
+		d.hits[key] = h
+	}
+	return len(h)
+}
+
+func (d *dayCounter) add(key string, now time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.hits == nil {
+		d.hits = map[string][]time.Time{}
+	}
+	d.hits[key] = append(d.hits[key], now)
+}
+
+// allowReply reserves one reply for the group: over the per-group daily cap or the bot-wide daily cap it is refused.
+func (c *WhatsAppNativeChannel) allowReply(group string) bool {
+	now := time.Now()
+	if c.day.count(group, now, hubGlobalSpan) >= groupReplyDay || c.day.count("", now, hubGlobalSpan) >= hubGlobalMax {
+		return false
+	}
+	c.day.add(group, now)
+	c.day.add("", now)
+	return true
 }
 
 // appGroups stores, per app, the groups it may post to: <dir>/<app>.json = {"groups":[...]}.
@@ -220,6 +262,10 @@ func (c *WhatsAppNativeChannel) callGroupApp(h *dmWebhook, chat types.JID, pn, l
 		reply = string(r[:groupReplyMax])
 	}
 	if reply == "" {
+		return
+	}
+	if !c.allowReply(p.GroupJID) {
+		logger.WarnCF("whatsapp", "group app reply over daily cap, not sent", map[string]any{"app": h.name})
 		return
 	}
 	if err := c.sendTo(chat.String(), reply); err != nil {
