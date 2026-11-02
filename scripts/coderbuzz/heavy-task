@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# heavy-task [--model M] [--timeout MIN] "<instruksi>" : jalankan pi sekali dalam cgroup berbatas memori.
+set -uo pipefail
+export PATH="$HOME/.local/bin:$PATH"
+TIMEOUT=20; MODEL=glm-5.3-flash
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --model) MODEL="${2:?}"; shift 2;;
+    --timeout) TIMEOUT="${2:?}"; shift 2;;
+    --) shift; break;;
+    *) break;;
+  esac
+done
+# pi runs without PicoClaws exec guard: only the owners main agent (or a human shell) may start it,
+# never a group agent (cwd = its ~/.picoclaw/ws-* workspace).
+case "$(pwd -P)/" in "$HOME"/.picoclaw/ws-*) echo "heavy-task ditolak: hanya untuk asisten pribadi pemilik" >&2; exit 77;; esac
+INSTR="${*:-}"
+[ -n "$INSTR" ] || { echo "usage: heavy-task [--model M] [--timeout MIN] \"<instruksi>\"" >&2; exit 2; }
+case "$TIMEOUT" in ""|*[!0-9]*) echo "timeout harus angka menit" >&2; exit 2;; esac
+
+mkdir -p ~/.cache ~/heavy; chmod 700 ~/heavy
+exec 9>~/.cache/heavy-task.lock
+flock -n 9 || { echo "heavy-task sedang dipakai job lain, coba lagi nanti"; exit 75; }
+
+ENVF=~/.config/picoclaw/llm.env
+[ -r "$ENVF" ] || [ "${HEAVY_TASK_DRY:-}" = 1 ] || { echo "error: $ENVF tidak ada; buat dengan ZAI_API_KEY (dan GROQ_API_KEY)" >&2; exit 1; }
+[ -r "$ENVF" ] && { set -a; . "$ENVF"; set +a; }
+
+JOB=~/heavy/$(date +%Y%m%d-%H%M%S); mkdir -p "$JOB"; cd "$JOB" || exit 1
+# simpan 20 job terbaru
+ls -1d ~/heavy/*/ 2>/dev/null | sort | head -n -20 | xargs -r rm -rf --
+
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+
+if [ "${HEAVY_TASK_DRY:-}" = 1 ]; then CMD=(echo dry-run); else CMD=(pi -p --no-session --provider zai --model "$MODEL" "$INSTR"); fi
+UNIT="heavy-job-$$"
+# Chromium (agent-browser) moves itself into app-org.chromium.Chromium-*.scope and its daemon outlives pi, so
+# timeout alone leaves them behind. Cleanup runs on any exit: close browser, stop chromium scopes spawned by the job, stop the job scope.
+cleanup() {
+  trap - EXIT INT TERM
+  # collect job-owned chromium scopes BEFORE closing: after the daemon dies chromium is reparented and no longer matches
+  mine=()
+  cg=$(systemctl --user show -p ControlGroup --value "$UNIT.scope" 2>/dev/null)
+  if [ -n "$cg" ]; then
+    pids=" $(tr '\n' ' ' < "/sys/fs/cgroup$cg/cgroup.procs" 2>/dev/null) "
+    for s in $(systemctl --user list-units --type=scope --no-legend 'app-org.chromium.Chromium-*' | awk '{print $1}'); do
+      scg=$(systemctl --user show -p ControlGroup --value "$s")
+      for p in $(cat "/sys/fs/cgroup$scg/cgroup.procs" 2>/dev/null); do
+        pp=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+        case "$pids" in *" $pp "*) mine+=("$s"); break;; esac
+      done
+    done
+  fi
+  timeout 10 ${AGENT_BROWSER:-agent-browser} close >/dev/null 2>&1
+  [ ${#mine[@]} -gt 0 ] && systemctl --user stop "${mine[@]}" 2>/dev/null
+  systemctl --user stop "$UNIT.scope" 2>/dev/null
+}
+trap cleanup EXIT INT TERM
+systemd-run --user --scope --quiet --unit="$UNIT" -p MemoryMax=550M -p MemorySwapMax=1G -p CPUQuota=150% -p RuntimeMaxSec=$((TIMEOUT*60+60)) \
+  timeout --kill-after=30s "${TIMEOUT}m" "${CMD[@]}" >"$JOB/job.log" 2>&1
+RC=$?
+[ $RC -eq 124 ] && echo "timeout (${TIMEOUT} menit)"
+tail -c 12000 "$JOB/job.log"
+echo "log: $JOB/job.log"
+exit $RC
