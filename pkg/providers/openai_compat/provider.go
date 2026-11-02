@@ -191,9 +191,12 @@ func (p *Provider) buildRequestBody(
 
 	if temperature, ok := common.AsFloat(options["temperature"]); ok {
 		lowerModel := strings.ToLower(model)
-		if strings.Contains(lowerModel, "kimi") && strings.Contains(lowerModel, "k2") {
+		switch {
+		case strings.Contains(lowerModel, "kimi") && strings.Contains(lowerModel, "k2"):
 			requestBody["temperature"] = 1.0
-		} else {
+		case strings.Contains(lowerModel, "claude"):
+			// Claude 4.7+/5.x reject temperature (400 "deprecated"); older Claude default it to 1.0 anyway.
+		default:
 			requestBody["temperature"] = temperature
 		}
 	}

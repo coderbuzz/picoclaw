@@ -1075,6 +1075,34 @@ func TestProviderChat_StripsMoonshotPrefixAndNormalizesKimiTemperature(t *testin
 	}
 }
 
+func TestProviderChat_OmitsTemperatureForClaude(t *testing.T) {
+	var requestBody map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"content": "ok"}, "finish_reason": "stop"}},
+		})
+	}))
+	defer server.Close()
+
+	p := NewProvider("key", server.URL, "")
+	for model, want := range map[string]bool{"claude-haiku-5-5": false, "glm-5.3-flash": true} {
+		requestBody = nil
+		if _, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, model,
+			map[string]any{"temperature": 0.7}); err != nil {
+			t.Fatalf("Chat(%s) error = %v", model, err)
+		}
+		if _, has := requestBody["temperature"]; has != want {
+			t.Fatalf("%s: temperature present = %v, want %v", model, has, want)
+		}
+	}
+}
+
 func TestProviderChat_StripsKnownProviderPrefixes(t *testing.T) {
 	var requestBody map[string]any
 

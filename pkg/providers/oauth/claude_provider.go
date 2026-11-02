@@ -24,6 +24,12 @@ func NewClaudeProviderWithBaseURL(token, apiBase string) *ClaudeProvider {
 	}
 }
 
+func NewClaudeProviderWithAPIKey(apiKey, apiBase, userAgent string) *ClaudeProvider {
+	return &ClaudeProvider{
+		delegate: anthropicprovider.NewProviderWithAPIKey(apiKey, apiBase, userAgent),
+	}
+}
+
 func NewClaudeProviderWithTokenSource(token string, tokenSource func() (string, error)) *ClaudeProvider {
 	return &ClaudeProvider{
 		delegate: anthropicprovider.NewProviderWithTokenSource(token, tokenSource),
