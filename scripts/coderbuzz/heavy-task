@@ -34,7 +34,24 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 
 if [ "${HEAVY_TASK_DRY:-}" = 1 ]; then CMD=(echo dry-run); else CMD=(pi -p --no-session --provider zai --model "$MODEL" "$INSTR"); fi
-systemd-run --user --scope --quiet -p MemoryMax=550M -p MemorySwapMax=1G -p CPUQuota=150% \
+UNIT="heavy-job-$$"
+# Chromium (agent-browser) moves itself into app-org.chromium.Chromium-*.scope and its daemon outlives pi, so
+# timeout alone leaves them behind. Cleanup runs on any exit: close browser, stop chromium scopes spawned by the job, stop the job scope.
+cleanup() {
+  trap - EXIT INT TERM
+  timeout 10 agent-browser close >/dev/null 2>&1
+  cg=$(systemctl --user show -p ControlGroup --value "$UNIT.scope" 2>/dev/null)
+  if [ -n "$cg" ]; then
+    pids=" $(tr '\n' ' ' < "/sys/fs/cgroup$cg/cgroup.procs" 2>/dev/null) "
+    for s in $(systemctl --user list-units --type=scope --no-legend 'app-org.chromium.Chromium-*' | awk '{print $1}'); do
+      mp=$(systemctl --user show -p MainPID --value "$s"); pp=$(ps -o ppid= -p "$mp" 2>/dev/null | tr -d ' ')
+      case "$pids" in *" $pp "*) systemctl --user stop "$s" 2>/dev/null;; esac
+    done
+  fi
+  systemctl --user stop "$UNIT.scope" 2>/dev/null
+}
+trap cleanup EXIT INT TERM
+systemd-run --user --scope --quiet --unit="$UNIT" -p MemoryMax=550M -p MemorySwapMax=1G -p CPUQuota=150% -p RuntimeMaxSec=$((TIMEOUT*60+60)) \
   timeout --kill-after=30s "${TIMEOUT}m" "${CMD[@]}" >"$JOB/job.log" 2>&1
 RC=$?
 [ $RC -eq 124 ] && echo "timeout (${TIMEOUT} menit)"
