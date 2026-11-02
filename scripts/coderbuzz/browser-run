@@ -1,0 +1,3 @@
+#!/bin/sh
+# Chromium for the picoclaw browser tool, in its own cgroup (picoclaw service is capped at 350M).
+exec systemd-run --user --scope --quiet -p MemoryMax=500M -p MemorySwapMax=1G -p CPUQuota=150% chromium "$@"
