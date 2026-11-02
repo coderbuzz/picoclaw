@@ -39,15 +39,21 @@ UNIT="heavy-job-$$"
 # timeout alone leaves them behind. Cleanup runs on any exit: close browser, stop chromium scopes spawned by the job, stop the job scope.
 cleanup() {
   trap - EXIT INT TERM
-  timeout 10 agent-browser close >/dev/null 2>&1
+  # collect job-owned chromium scopes BEFORE closing: after the daemon dies chromium is reparented and no longer matches
+  mine=()
   cg=$(systemctl --user show -p ControlGroup --value "$UNIT.scope" 2>/dev/null)
   if [ -n "$cg" ]; then
     pids=" $(tr '\n' ' ' < "/sys/fs/cgroup$cg/cgroup.procs" 2>/dev/null) "
     for s in $(systemctl --user list-units --type=scope --no-legend 'app-org.chromium.Chromium-*' | awk '{print $1}'); do
-      mp=$(systemctl --user show -p MainPID --value "$s"); pp=$(ps -o ppid= -p "$mp" 2>/dev/null | tr -d ' ')
-      case "$pids" in *" $pp "*) systemctl --user stop "$s" 2>/dev/null;; esac
+      scg=$(systemctl --user show -p ControlGroup --value "$s")
+      for p in $(cat "/sys/fs/cgroup$scg/cgroup.procs" 2>/dev/null); do
+        pp=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+        case "$pids" in *" $pp "*) mine+=("$s"); break;; esac
+      done
     done
   fi
+  timeout 10 ${AGENT_BROWSER:-agent-browser} close >/dev/null 2>&1
+  [ ${#mine[@]} -gt 0 ] && systemctl --user stop "${mine[@]}" 2>/dev/null
   systemctl --user stop "$UNIT.scope" 2>/dev/null
 }
 trap cleanup EXIT INT TERM
