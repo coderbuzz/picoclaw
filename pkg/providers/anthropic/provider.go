@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -48,6 +49,20 @@ func NewProviderWithBaseURL(token, apiBase string) *Provider {
 		option.WithAuthToken(token),
 		option.WithBaseURL(baseURL),
 	)
+	return &Provider{
+		client:  &client,
+		baseURL: baseURL,
+	}
+}
+
+// NewProviderWithAPIKey authenticates with an x-api-key (console API key), non-streaming.
+func NewProviderWithAPIKey(apiKey, apiBase, userAgent string) *Provider {
+	baseURL := common.NormalizeBaseURL(apiBase, defaultBaseURL, false)
+	opts := []option.RequestOption{option.WithAPIKey(apiKey), option.WithBaseURL(baseURL)}
+	if userAgent != "" {
+		opts = append(opts, option.WithHeader("User-Agent", userAgent))
+	}
+	client := anthropic.NewClient(opts...)
 	return &Provider{
 		client:  &client,
 		baseURL: baseURL,
@@ -170,9 +185,11 @@ func buildParams(
 					anthropic.NewUserMessage(anthropic.NewToolResultBlock(msg.ToolCallID, msg.Content, false)),
 				)
 			} else {
-				anthropicMessages = append(anthropicMessages,
-					anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)),
-				)
+				blocks := mediaBlocks(msg.Media)
+				if msg.Content != "" || len(blocks) == 0 {
+					blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
+				}
+				anthropicMessages = append(anthropicMessages, anthropic.NewUserMessage(blocks...))
 			}
 		case "assistant":
 			if len(msg.ToolCalls) > 0 {
@@ -235,9 +252,13 @@ func buildParams(
 		params.System = system
 	}
 
-	if temp, ok := options["temperature"].(float64); ok {
+	if temp, ok := options["temperature"].(float64); ok && !rejectsSampling(apiModel) {
 		params.Temperature = anthropic.Float(temp)
 	}
+
+	// Automatic prompt caching: the cache breakpoint follows the last block, so the
+	// tools + system + history prefix is reused across tool iterations and turns.
+	params.CacheControl = anthropic.NewCacheControlEphemeralParam()
 
 	if len(tools) > 0 {
 		params.Tools = translateTools(tools)
@@ -247,11 +268,40 @@ func buildParams(
 	// The thinking_level value directly determines the API parameter format:
 	//   "adaptive" → {thinking: {type: "adaptive"}} + output_config.effort
 	//   "low/medium/high/xhigh" → {thinking: {type: "enabled", budget_tokens: N}}
-	if level, ok := options["thinking_level"].(string); ok && level != "" && level != "off" {
+	if level, ok := options["thinking_level"].(string); ok && level == "off" {
+		// Explicit off: models with thinking on by default (Claude Haiku 5.5) would otherwise
+		// return thinking blocks that must be replayed with tool results.
+		disabled := anthropic.NewThinkingConfigDisabledParam()
+		params.Thinking = anthropic.ThinkingConfigParamUnion{OfDisabled: &disabled}
+	} else if ok && level != "" {
 		applyThinkingConfig(&params, level)
 	}
 
 	return params, nil
+}
+
+// rejectsSampling reports models that return 400 for a non-default temperature
+// (Claude Opus 4.7+, the 5.x family, Fable, Mythos).
+var rejectsSamplingRe = regexp.MustCompile(`claude-(haiku|sonnet|opus)-5|opus-4-[78]|fable|mythos`)
+
+func rejectsSampling(model string) bool { return rejectsSamplingRe.MatchString(model) }
+
+// mediaBlocks converts data: URLs (images, PDF) into content blocks; other media is skipped.
+func mediaBlocks(media []string) []anthropic.ContentBlockParamUnion {
+	var blocks []anthropic.ContentBlockParamUnion
+	for _, m := range media {
+		meta, data, ok := strings.Cut(strings.TrimPrefix(m, "data:"), ";base64,")
+		if !ok || !strings.HasPrefix(m, "data:") {
+			continue
+		}
+		switch meta {
+		case "image/jpeg", "image/png", "image/gif", "image/webp":
+			blocks = append(blocks, anthropic.NewImageBlockBase64(meta, data))
+		case "application/pdf":
+			blocks = append(blocks, anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{Data: data}))
+		}
+	}
+	return blocks
 }
 
 // applyThinkingConfig sets thinking parameters based on the level value.

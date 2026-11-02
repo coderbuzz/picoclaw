@@ -23,6 +23,10 @@ func NewClaudeProviderWithBaseURL(token, apiBase string) *ClaudeProvider {
 	return oauthprovider.NewClaudeProviderWithBaseURL(token, apiBase)
 }
 
+func NewClaudeProviderWithAPIKey(apiKey, apiBase, userAgent string) *ClaudeProvider {
+	return oauthprovider.NewClaudeProviderWithAPIKey(apiKey, apiBase, userAgent)
+}
+
 func NewClaudeProviderWithTokenSource(token string, tokenSource func() (string, error)) *ClaudeProvider {
 	return oauthprovider.NewClaudeProviderWithTokenSource(token, tokenSource)
 }
