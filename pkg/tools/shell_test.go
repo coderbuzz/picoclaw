@@ -525,12 +525,29 @@ func TestShellTool_DevNullAllowed(t *testing.T) {
 		"echo hello 2> /dev/null",
 		"echo hello >/dev/null 2>&1",
 		"find " + tmpDir + " -name '*.go' 2>/dev/null",
+		"ls 2>/dev/null; echo hello",
+		"ls 2>/dev/null&& echo hello",
+		"ls 2>/dev/null|wc -l",
 	}
 
 	for _, cmd := range commands {
 		result := tool.Execute(context.Background(), map[string]any{"action": "run", "command": cmd})
 		if result.IsError && strings.Contains(result.ForLLM, "blocked") {
 			t.Errorf("command should not be blocked: %s\n  error: %s", cmd, result.ForLLM)
+		}
+	}
+}
+
+// Paths glued to shell operators are still checked on their own.
+func TestShellTool_PathBeforeShellOperatorStillBlocked(t *testing.T) {
+	tool, err := NewExecTool(t.TempDir(), true)
+	if err != nil {
+		t.Fatalf("unable to configure exec tool: %s", err)
+	}
+	for _, cmd := range []string{"cat /etc/passwd;", "ls 2>/dev/null;cat /etc/passwd", "cat /etc/passwd|wc"} {
+		result := tool.Execute(context.Background(), map[string]any{"action": "run", "command": cmd})
+		if !result.IsError || !strings.Contains(result.ForLLM, "blocked") {
+			t.Errorf("command should be blocked: %s", cmd)
 		}
 	}
 }
