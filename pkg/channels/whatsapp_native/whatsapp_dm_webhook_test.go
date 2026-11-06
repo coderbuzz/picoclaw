@@ -241,6 +241,27 @@ func TestDMWebhook_DuplicateMessageIDHandledOnce(t *testing.T) {
 	}
 }
 
+func TestDMWebhook_EmptyCopyDoesNotConsumeID(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	h := newDMHarness(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"reply":"ok"}`))
+	}))
+	empty := dmEvent(dmLID, "")
+	empty.Message = &waE2E.Message{} // e.g. only a sender key distribution
+	h.ch.handleIncoming(empty)
+	h.ch.handleIncoming(dmEvent(dmLID, "MASUK ABCD1234")) // readable retry, same ID
+	h.wantSent(t)
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("webhook called %d times", calls)
+	}
+}
+
 func TestSeenIDsExpire(t *testing.T) {
 	var s seenIDs
 	t0 := time.Unix(1700000000, 0)

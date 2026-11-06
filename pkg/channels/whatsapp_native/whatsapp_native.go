@@ -449,6 +449,13 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 	if evt.Info.IsFromMe {
 		return
 	}
+	// An empty copy (sender-key distribution only, placeholder) must not consume the ID: the
+	// readable copy arrives later with the same ID.
+	content := utils.SanitizeMessageContent(messageText(evt.Message))
+	att := inboundMediaOf(evt.Message)
+	if content == "" && att == nil {
+		return
+	}
 	if !c.seen.first(evt.Info.ID, time.Now()) {
 		logger.InfoC("whatsapp", "duplicate inbound message ignored")
 		return
@@ -463,12 +470,6 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 	}
 	senderID := evt.Info.Sender.ToNonAD().String()
 	chatID := evt.Info.Chat.String()
-	content := utils.SanitizeMessageContent(messageText(evt.Message))
-	att := inboundMediaOf(evt.Message)
-
-	if content == "" && att == nil {
-		return
-	}
 
 	if !isGroup {
 		c.recordContact(evt)
