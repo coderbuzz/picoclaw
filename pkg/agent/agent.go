@@ -571,6 +571,9 @@ func (al *AgentLoop) runAgentLoop(
 		opts.Dispatch.SessionKey,
 		newTurnContext(opts.Dispatch.InboundContext, opts.Dispatch.RouteResult, opts.Dispatch.SessionScope),
 	)
+	if agent.Isolated {
+		opts.Dispatch.Media = inboxMedia(al.mediaStore, agent.Workspace, "inbox:"+agent.ID, opts.Dispatch.Media)
+	}
 	ts := newTurnState(agent, opts, turnScope)
 	pipeline := NewPipeline(al)
 	result, err := al.runTurn(ctx, ts, pipeline)

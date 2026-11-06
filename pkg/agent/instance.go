@@ -39,6 +39,7 @@ type AgentInstance struct {
 	SummarizeMessageThreshold int
 	SummarizeTokenPercent     int
 	IdleReset                 time.Duration
+	Isolated                  bool // exec runs in a sandbox that sees only the workspace
 	Provider                  providers.LLMProvider
 	Sessions                  session.SessionStore
 	ContextBuilder            *ContextBuilder
@@ -356,6 +357,7 @@ func NewAgentInstance(
 		SummarizeMessageThreshold: summarizeMessageThreshold,
 		SummarizeTokenPercent:     summarizeTokenPercent,
 		IdleReset:                 idleReset,
+		Isolated:                  agentCfg != nil && agentCfg.Isolation != nil && agentCfg.Isolation.Enabled,
 		Provider:                  provider,
 		Sessions:                  sessions,
 		ContextBuilder:            contextBuilder,
