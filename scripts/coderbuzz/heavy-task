@@ -30,6 +30,59 @@ JOB=~/heavy/$(date +%Y%m%d-%H%M%S); mkdir -p "$JOB"; cd "$JOB" || exit 1
 # simpan 20 job terbaru
 ls -1d ~/heavy/*/ 2>/dev/null | sort | head -n -20 | xargs -r rm -rf --
 
+# Remote first: pi on an InstaBox machine (RAM here is too small for Chromium). Falls back to local only when the
+# machine cannot be used before the job starts; once started remotely, a failure is reported, never rerun locally.
+IBENV=~/.config/picoclaw/instabox.env  # INSTABOX_API_KEY, INSTABOX_MACHINE (m_...), optional INSTABOX_API_URL
+if [ -r "$IBENV" ] && [ "${HEAVY_TASK_LOCAL:-}" != 1 ] && [ "${HEAVY_TASK_DRY:-}" != 1 ]; then
+  IB_KEY=$(sed -n 's/^INSTABOX_API_KEY=//p' "$IBENV"); IB_M=$(sed -n 's/^INSTABOX_MACHINE=//p' "$IBENV")
+  IB_URL=$(sed -n 's/^INSTABOX_API_URL=//p' "$IBENV"); IB_URL=${IB_URL:-https://api.instabox.sh}
+  api() { curl -sS --max-time 90 -H "X-API-Key: $IB_KEY" "$@"; }
+  jget() { python3 -c 'import sys,json
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(1)
+for k in sys.argv[1].split("."): d=d.get(k) if isinstance(d,dict) else None
+print("" if d is None else d)' "$1"; }
+  # rexec <timeoutSec> <cmd> [stdin]: run on the machine, print stdout; exit code = remote exit code (99 = API error)
+  rexec() {
+    local r; r=$(python3 -c 'import json,sys; print(json.dumps({"cmd":"export PATH=$HOME/.local/bin:$PATH; "+sys.argv[2],"timeoutSeconds":int(sys.argv[1]),"stdin":sys.argv[3] if len(sys.argv)>3 else ""}))' "$@" \
+      | api -H 'Content-Type: application/json' --data-binary @- "$IB_URL/v1/machines/$IB_M/exec") || return 99
+    printf '%s' "$(printf '%s' "$r" | jget stdout)"; local rc; rc=$(printf '%s' "$r" | jget exitCode) || return 99
+    [ -n "$rc" ] || { printf '%s' "$r" | head -c 300 >&2; return 99; }; return "$rc"
+  }
+  ib_up() {
+    local st i r
+    st=$(api "$IB_URL/v1/machines/$IB_M" | jget state)
+    [ -n "$st" ] || { echo "mesin tidak ditemukan / API error" >&2; return 1; }
+    [ "$st" = running ] && return 0
+    # cooldown (409) or quota errors come back as {"error":...}: fail fast instead of polling
+    r=$(api -X POST -H "Idempotency-Key: $(uuidgen)" "$IB_URL/v1/machines/$IB_M/start") || return 1
+    i=$(printf '%s' "$r" | jget error.code); [ -z "$i" ] || { echo "$i" >&2; return 1; }
+    for i in $(seq 30); do sleep 3; st=$(api "$IB_URL/v1/machines/$IB_M" | jget state); [ "$st" = running ] && return 0; done
+    echo "state=$st" >&2; return 1
+  }
+  RJ=heavy/$(basename "$JOB")
+  if ib_up 2>"$JOB/instabox.err" && rexec 30 "mkdir -p ~/$RJ && cat > ~/$RJ/instr.txt" "$INSTR" >/dev/null &&
+     rexec 30 "cd ~/$RJ && setsid bash -c 'timeout --kill-after=30s ${TIMEOUT}m pi -p --no-session --model \"$MODEL\" --thinking off \"\$(cat instr.txt)\" >job.log 2>&1; echo \$? >rc; agent-browser close >/dev/null 2>&1' </dev/null >/dev/null 2>&1 & echo \$! > ~/$RJ/pid" >/dev/null; then
+    trap 'rexec 20 "kill -- -\$(cat ~/$RJ/pid) 2>/dev/null; agent-browser close" >/dev/null 2>&1; exit 130' INT TERM
+    DEADLINE=$(( $(date +%s) + TIMEOUT*60 + 120 ))
+    # polling via exec also counts as activity, so the machine does not auto-pause mid-job
+    until RC=$(rexec 20 "cat ~/$RJ/rc 2>/dev/null"); [ -n "$RC" ]; do
+      [ "$(date +%s)" -gt "$DEADLINE" ] && { rexec 20 "kill -- -\$(cat ~/$RJ/pid) 2>/dev/null; agent-browser close" >/dev/null; RC=124; break; }
+      sleep 10
+    done
+    # bring back the job folder (files < 20 MB) so the bot can send results; big files stay on the machine
+    rexec 120 "cd ~/$RJ && find . -type f -size -20M ! -name pid ! -name rc -print0 | tar czf /tmp/heavy-out.tgz --null -T - && ls -1d ~/heavy/*/ | sort | head -n -20 | xargs -r rm -rf --" >/dev/null &&
+      api -o "$JOB/out.tgz" "$IB_URL/v1/machines/$IB_M/files/content?path=/tmp/heavy-out.tgz" && tar xzf "$JOB/out.tgz" -C "$JOB" && rm -f "$JOB/out.tgz"
+    # no manual suspend: other jobs may share the machine, and it auto-pauses after 30 min idle (a manual pause would not auto-wake)
+    case "$RC" in ""|*[!0-9]*) RC=1;; esac
+    [ "$RC" -eq 124 ] && echo "timeout (${TIMEOUT} menit)"
+    tail -c 12000 "$JOB/job.log" 2>/dev/null || echo "job.log tidak terambil dari InstaBox"
+    echo "log: $JOB/job.log (dijalankan di InstaBox)"
+    exit "$RC"
+  fi
+  echo "InstaBox tidak bisa dipakai ($(head -c 200 "$JOB/instabox.err")), jalan lokal" >&2
+fi
+
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 
