@@ -1,0 +1,20 @@
+#!/bin/sh
+# heavy-sync (root, /usr/local/bin on the InstaBox machine): refresh the job user's secret placeholders and browser
+# login from the machine's general Chromium profile. heavy-task runs it (sudo) before a job or a browser call.
+set -e
+U=heavy; H=/data/heavy
+# the env file points at the proxy CA under /run/instabox/secrets (0700 machine user): give the job user its own copy
+install -m 644 -o $U -g $U /run/instabox/secrets/ca-bundle.pem $H/.ca-bundle.pem
+sed "s#/run/instabox/secrets/ca-bundle.pem#$H/.ca-bundle.pem#g" /run/instabox/secrets/env > $H/.secrets.env
+chown $U:$U $H/.secrets.env; chmod 600 $H/.secrets.env
+
+SRC=/data/home/.config/chromium; DST=$H/.config/chromium
+# a job's Chromium holds the profile: never overwrite its cookie database under it
+lock=$(readlink "$DST/SingletonLock" 2>/dev/null || true)
+[ -n "$lock" ] && kill -0 "${lock##*-}" 2>/dev/null && exit 0
+mkdir -p "$DST/Default"
+cp -f "$SRC/Local State" "$DST/"
+# cookies and settings only: no "Login Data" (saved passwords stay with the machine user)
+for f in Cookies Preferences; do [ -f "$SRC/Default/$f" ] && cp -f "$SRC/Default/$f" "$DST/Default/"; done
+rm -f "$DST"/Singleton* "$DST/Default/Login Data"
+chown -R $U:$U $H/.config
