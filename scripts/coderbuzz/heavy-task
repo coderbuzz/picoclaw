@@ -20,12 +20,17 @@ done
 REMOTE_ONLY=${HEAVY_TASK_REMOTE_ONLY:-}; [ "$MODE" = browser ] && REMOTE_ONLY=1
 case "$(pwd -P)/" in "$HOME"/.picoclaw/ws-*) [ "$REMOTE_ONLY" = 1 ] || { echo "heavy-task ditolak: hanya untuk asisten pribadi pemilik" >&2; exit 77; };; esac
 
-IBENV=~/.config/picoclaw/instabox.env  # INSTABOX_API_KEY, INSTABOX_MACHINE (m_...), optional INSTABOX_API_URL
+IBENV=~/.config/picoclaw/instabox.env  # INSTABOX_API_KEY, INSTABOX_MACHINE (m_...), optional INSTABOX_API_URL, INSTABOX_JOB_USER
 ib_init() {
   [ -r "$IBENV" ] && [ "${HEAVY_TASK_LOCAL:-}" != 1 ] && [ "${HEAVY_TASK_DRY:-}" != 1 ] || return 1
   IB_KEY=$(sed -n 's/^INSTABOX_API_KEY=//p' "$IBENV"); IB_M=$(sed -n 's/^INSTABOX_MACHINE=//p' "$IBENV")
   IB_URL=$(sed -n 's/^INSTABOX_API_URL=//p' "$IBENV"); IB_URL=${IB_URL:-https://api.instabox.sh}
+  # job user: jobs (which group members can instruct) run as this sudo-less user, away from the machine user's logins;
+  # the machine needs /usr/local/bin/heavy-sync (scripts/coderbuzz/instabox/heavy-sync)
+  IB_USER=$(sed -n 's/^INSTABOX_JOB_USER=//p' "$IBENV")
+  case "$IB_USER" in [!a-z_]*|*[!a-z0-9_-]*) echo "INSTABOX_JOB_USER tidak valid" >&2; return 1;; esac
 }
+q() { printf '%q' "$1"; }
 api() { curl -sS --max-time 90 -H "X-API-Key: $IB_KEY" "$@"; }
 jget() { python3 -c 'import sys,json
 try: d=json.load(sys.stdin)
@@ -38,6 +43,13 @@ rexec() {
     | api -H 'Content-Type: application/json' --data-binary @- "$IB_URL/v1/machines/$IB_M/exec") || return 99
   printf '%s' "$(printf '%s' "$r" | jget stdout)"; local rc; rc=$(printf '%s' "$r" | jget exitCode) || return 99
   [ -n "$rc" ] || { printf '%s' "$r" | head -c 300 >&2; return 99; }; return "$rc"
+}
+# rsh <timeoutSec> <script> [sync]: run a bash script (stdin) on the machine in a login shell (Org Secrets are only
+# loaded by /etc/profile.d), as the job user when set; sync=1 refreshes its secret placeholders and browser login first.
+rsh() {
+  if [ -z "$IB_USER" ]; then rexec "$1" "bash -l -s" "$2"; return; fi
+  local pre=""; [ "${3:-}" = 1 ] && pre="sudo /usr/local/bin/heavy-sync >/dev/null && "
+  rexec "$1" "${pre}sudo -u $IB_USER -H bash -l -s" "$2"
 }
 ib_up() {
   local st i r
@@ -58,14 +70,19 @@ if [ "$MODE" = browser ]; then
   case "$URL" in http://*|https://*) ;; *) echo "url harus http/https" >&2; exit 2;; esac
   ib_init && ib_up 2>/dev/null || { echo "InstaBox tidak bisa dipakai, browser tidak dijalankan di VM bot" >&2; exit 69; }
   S=bt-$$-$RANDOM; P=/tmp/$S.png
-  # URL goes in as stdin, never into the remote shell line
+  # own session and a throwaway copy of the login profile: the profile is locked while a job's browser uses it
+  BODY="u=$(q "$URL"); D=\$(mktemp -d); mkdir -p \$D/Default
+cp ~/.config/chromium/'Local State' \$D/ 2>/dev/null; cp ~/.config/chromium/Default/Cookies ~/.config/chromium/Default/Preferences \$D/Default/ 2>/dev/null
+ab() { agent-browser --session $S --profile \$D \"\$@\"; }"
   if [ "$ACT" = text ]; then
-    rexec 90 "u=\$(cat); agent-browser --session $S open \"\$u\" >/dev/null && agent-browser --session $S get text body; rc=\$?; agent-browser --session $S close >/dev/null 2>&1; exit \$rc" "$URL"
+    rsh 120 "$BODY
+ab open \"\$u\" >/dev/null && ab get text body; rc=\$?; ab close >/dev/null 2>&1; rm -rf \$D; exit \$rc" 1
     exit $?
   fi
-  rexec 90 "u=\$(cat); agent-browser --session $S set viewport 1280 2000 >/dev/null; agent-browser --session $S open \"\$u\" >/dev/null && agent-browser --session $S screenshot $P >/dev/null; rc=\$?; agent-browser --session $S close >/dev/null 2>&1; exit \$rc" "$URL" >/dev/null || exit $?
+  rsh 120 "$BODY
+ab set viewport 1280 2000 >/dev/null; ab open \"\$u\" >/dev/null && ab screenshot $P >/dev/null && chmod 644 $P; rc=\$?; ab close >/dev/null 2>&1; rm -rf \$D; exit \$rc" 1 >/dev/null || exit $?
   api -f -o "$OUT" "$IB_URL/v1/machines/$IB_M/files/content?path=$P"; rc=$?
-  rexec 20 "rm -f $P" >/dev/null
+  rsh 20 "rm -f $P" >/dev/null
   exit $rc
 fi
 
@@ -88,19 +105,20 @@ ls -1d ~/heavy/*/ 2>/dev/null | sort | head -n -20 | xargs -r rm -rf --
 # Remote first: pi on an InstaBox machine (RAM here is too small for Chromium). Falls back to local only when the
 # machine cannot be used before the job starts; once started remotely, a failure is reported, never rerun locally.
 if ib_init; then
-  RJ=heavy/$(basename "$JOB")
-  if ib_up 2>"$JOB/instabox.err" && rexec 30 "mkdir -p ~/$RJ && cat > ~/$RJ/instr.txt" "$INSTR" >/dev/null &&
-     rexec 30 "cd ~/$RJ && setsid bash -c 'timeout --kill-after=30s ${TIMEOUT}m pi -p --no-session --model \"$MODEL\" --thinking off \"\$(cat instr.txt)\" >job.log 2>&1; echo \$? >rc; agent-browser close >/dev/null 2>&1' </dev/null >/dev/null 2>&1 & echo \$! > ~/$RJ/pid" >/dev/null; then
-    trap 'rexec 20 "kill -- -\$(cat ~/$RJ/pid) 2>/dev/null; agent-browser close" >/dev/null 2>&1; exit 130' INT TERM
+  RJ=heavy/$(basename "$JOB"); TGZ=/tmp/heavy-out-$(basename "$JOB").tgz
+  if ib_up 2>"$JOB/instabox.err" && rsh 30 "mkdir -p ~/$RJ && printf '%s' $(q "$INSTR") > ~/$RJ/instr.txt" 1 >/dev/null &&
+     rsh 30 "cd ~/$RJ || exit 1; setsid bash -lc 'timeout --kill-after=30s ${TIMEOUT}m pi -p --no-session --model \"\$1\" --thinking off \"\$(cat instr.txt)\" >job.log 2>&1; echo \$? >rc; agent-browser close >/dev/null 2>&1' _ $(q "$MODEL") </dev/null >/dev/null 2>&1 & echo \$! > pid" >/dev/null; then
+    trap 'rsh 20 "kill -- -\$(cat ~/$RJ/pid) 2>/dev/null; agent-browser close" >/dev/null 2>&1; exit 130' INT TERM
     DEADLINE=$(( $(date +%s) + TIMEOUT*60 + 120 ))
     # polling via exec also counts as activity, so the machine does not auto-pause mid-job
-    until RC=$(rexec 20 "cat ~/$RJ/rc 2>/dev/null"); [ -n "$RC" ]; do
-      [ "$(date +%s)" -gt "$DEADLINE" ] && { rexec 20 "kill -- -\$(cat ~/$RJ/pid) 2>/dev/null; agent-browser close" >/dev/null; RC=124; break; }
+    until RC=$(rsh 20 "cat ~/$RJ/rc 2>/dev/null"); [ -n "$RC" ]; do
+      [ "$(date +%s)" -gt "$DEADLINE" ] && { rsh 20 "kill -- -\$(cat ~/$RJ/pid) 2>/dev/null; agent-browser close" >/dev/null; RC=124; break; }
       sleep 10
     done
     # bring back the job folder (files < 20 MB) so the bot can send results; big files stay on the machine
-    rexec 120 "cd ~/$RJ && find . -type f -size -20M ! -name pid ! -name rc -print0 | tar czf /tmp/heavy-out.tgz --null -T - && ls -1d ~/heavy/*/ | sort | head -n -20 | xargs -r rm -rf --" >/dev/null &&
-      api -o "$JOB/out.tgz" "$IB_URL/v1/machines/$IB_M/files/content?path=/tmp/heavy-out.tgz" && tar xzf "$JOB/out.tgz" -C "$JOB" && rm -f "$JOB/out.tgz"
+    rsh 120 "cd ~/$RJ && find . -type f -size -20M ! -name pid ! -name rc -print0 | tar czf $TGZ --null -T - && chmod 644 $TGZ && ls -1d ~/heavy/*/ | sort | head -n -20 | xargs -r rm -rf --" >/dev/null &&
+      api -o "$JOB/out.tgz" "$IB_URL/v1/machines/$IB_M/files/content?path=$TGZ" && tar xzf "$JOB/out.tgz" -C "$JOB" && rm -f "$JOB/out.tgz"
+    rsh 20 "rm -f $TGZ" >/dev/null
     # no manual suspend: other jobs may share the machine, and it auto-pauses after 30 min idle (a manual pause would not auto-wake)
     case "$RC" in ""|*[!0-9]*) RC=1;; esac
     [ "$RC" -eq 124 ] && echo "timeout (${TIMEOUT} menit)"
