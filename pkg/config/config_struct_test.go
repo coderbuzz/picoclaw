@@ -412,3 +412,13 @@ func TestAgentBrowserConfigParse(t *testing.T) {
 		t.Fatalf("got %+v", a.Browser)
 	}
 }
+
+func TestAgentHeavyTaskConfigParse(t *testing.T) {
+	var a AgentConfig
+	if err := json.Unmarshal([]byte(`{"id":"h","browser":{"command":"heavy-task","remote":true},"heavy_task":{"models":["a/x","a/y"],"timeout_minutes":10}}`), &a); err != nil {
+		t.Fatal(err)
+	}
+	if a.HeavyTask == nil || len(a.HeavyTask.Models) != 2 || a.HeavyTask.TimeoutMinutes != 10 || a.Browser == nil || !a.Browser.Remote {
+		t.Fatalf("got %+v %+v", a.HeavyTask, a.Browser)
+	}
+}

@@ -1,19 +1,74 @@
 #!/usr/bin/env bash
 # heavy-task [--model M] [--timeout MIN] "<instruksi>" : jalankan pi sekali dalam cgroup berbatas memori.
+# heavy-task --browser text|screenshot <url> [out.png] : buka halaman dengan agent-browser di InstaBox (tool browser picoclaw).
+# HEAVY_TASK_REMOTE_ONLY=1: hanya InstaBox, tanpa fallback lokal (tool heavy_task agen grup). HEAVY_TASK_COPY_TO=<dir>: salin hasil job ke sana.
 set -uo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 TIMEOUT=20; MODEL=anthropic/claude-haiku-5-5  # provider/id; mis. zai/glm-5.3-flash
+MODE=job
 while [ $# -gt 0 ]; do
   case "$1" in
     --model) MODEL="${2:?}"; shift 2;;
     --timeout) TIMEOUT="${2:?}"; shift 2;;
+    --browser) MODE=browser; shift; break;;
     --) shift; break;;
     *) break;;
   esac
 done
-# pi runs without PicoClaws exec guard: only the owners main agent (or a human shell) may start it,
-# never a group agent (cwd = its ~/.picoclaw/ws-* workspace).
-case "$(pwd -P)/" in "$HOME"/.picoclaw/ws-*) echo "heavy-task ditolak: hanya untuk asisten pribadi pemilik" >&2; exit 77;; esac
+# pi runs without PicoClaw's exec guard, so on this host only the owner's main agent (or a human shell) may start it.
+# Group agents reach it only through picoclaw's heavy_task/browser tools, which set HEAVY_TASK_REMOTE_ONLY=1: InstaBox, never here.
+REMOTE_ONLY=${HEAVY_TASK_REMOTE_ONLY:-}; [ "$MODE" = browser ] && REMOTE_ONLY=1
+case "$(pwd -P)/" in "$HOME"/.picoclaw/ws-*) [ "$REMOTE_ONLY" = 1 ] || { echo "heavy-task ditolak: hanya untuk asisten pribadi pemilik" >&2; exit 77; };; esac
+
+IBENV=~/.config/picoclaw/instabox.env  # INSTABOX_API_KEY, INSTABOX_MACHINE (m_...), optional INSTABOX_API_URL
+ib_init() {
+  [ -r "$IBENV" ] && [ "${HEAVY_TASK_LOCAL:-}" != 1 ] && [ "${HEAVY_TASK_DRY:-}" != 1 ] || return 1
+  IB_KEY=$(sed -n 's/^INSTABOX_API_KEY=//p' "$IBENV"); IB_M=$(sed -n 's/^INSTABOX_MACHINE=//p' "$IBENV")
+  IB_URL=$(sed -n 's/^INSTABOX_API_URL=//p' "$IBENV"); IB_URL=${IB_URL:-https://api.instabox.sh}
+}
+api() { curl -sS --max-time 90 -H "X-API-Key: $IB_KEY" "$@"; }
+jget() { python3 -c 'import sys,json
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(1)
+for k in sys.argv[1].split("."): d=d.get(k) if isinstance(d,dict) else None
+print("" if d is None else d)' "$1"; }
+# rexec <timeoutSec> <cmd> [stdin]: run on the machine, print stdout; exit code = remote exit code (99 = API error)
+rexec() {
+  local r; r=$(python3 -c 'import json,sys; print(json.dumps({"cmd":"export PATH=$HOME/.local/bin:$PATH; "+sys.argv[2],"timeoutSeconds":int(sys.argv[1]),"stdin":sys.argv[3] if len(sys.argv)>3 else ""}))' "$@" \
+    | api -H 'Content-Type: application/json' --data-binary @- "$IB_URL/v1/machines/$IB_M/exec") || return 99
+  printf '%s' "$(printf '%s' "$r" | jget stdout)"; local rc; rc=$(printf '%s' "$r" | jget exitCode) || return 99
+  [ -n "$rc" ] || { printf '%s' "$r" | head -c 300 >&2; return 99; }; return "$rc"
+}
+ib_up() {
+  local st i r
+  st=$(api "$IB_URL/v1/machines/$IB_M" | jget state)
+  [ -n "$st" ] || { echo "mesin tidak ditemukan / API error" >&2; return 1; }
+  [ "$st" = running ] && return 0
+  # cooldown (409) or quota errors come back as {"error":...}: fail fast instead of polling
+  r=$(api -X POST -H "Idempotency-Key: $(uuidgen)" "$IB_URL/v1/machines/$IB_M/start") || return 1
+  i=$(printf '%s' "$r" | jget error.code); [ -z "$i" ] || { echo "$i" >&2; return 1; }
+  for i in $(seq 30); do sleep 3; st=$(api "$IB_URL/v1/machines/$IB_M" | jget state); [ "$st" = running ] && return 0; done
+  echo "state=$st" >&2; return 1
+}
+
+if [ "$MODE" = browser ]; then
+  # no job lock: a page view runs in its own agent-browser session next to a running job
+  ACT="${1:-}"; URL="${2:-}"; OUT="${3:-}"
+  case "$ACT" in text) ;; screenshot) [ -n "$OUT" ] || { echo "screenshot butuh path keluaran" >&2; exit 2; };; *) echo "usage: heavy-task --browser text|screenshot <url> [out.png]" >&2; exit 2;; esac
+  case "$URL" in http://*|https://*) ;; *) echo "url harus http/https" >&2; exit 2;; esac
+  ib_init && ib_up 2>/dev/null || { echo "InstaBox tidak bisa dipakai, browser tidak dijalankan di VM bot" >&2; exit 69; }
+  S=bt-$$-$RANDOM; P=/tmp/$S.png
+  # URL goes in as stdin, never into the remote shell line
+  if [ "$ACT" = text ]; then
+    rexec 90 "u=\$(cat); agent-browser --session $S open \"\$u\" >/dev/null && agent-browser --session $S get text body; rc=\$?; agent-browser --session $S close >/dev/null 2>&1; exit \$rc" "$URL"
+    exit $?
+  fi
+  rexec 90 "u=\$(cat); agent-browser --session $S set viewport 1280 2000 >/dev/null; agent-browser --session $S open \"\$u\" >/dev/null && agent-browser --session $S screenshot $P >/dev/null; rc=\$?; agent-browser --session $S close >/dev/null 2>&1; exit \$rc" "$URL" >/dev/null || exit $?
+  api -f -o "$OUT" "$IB_URL/v1/machines/$IB_M/files/content?path=$P"; rc=$?
+  rexec 20 "rm -f $P" >/dev/null
+  exit $rc
+fi
+
 INSTR="${*:-}"
 [ -n "$INSTR" ] || { echo "usage: heavy-task [--model M] [--timeout MIN] \"<instruksi>\"" >&2; exit 2; }
 case "$TIMEOUT" in ""|*[!0-9]*) echo "timeout harus angka menit" >&2; exit 2;; esac
@@ -32,34 +87,7 @@ ls -1d ~/heavy/*/ 2>/dev/null | sort | head -n -20 | xargs -r rm -rf --
 
 # Remote first: pi on an InstaBox machine (RAM here is too small for Chromium). Falls back to local only when the
 # machine cannot be used before the job starts; once started remotely, a failure is reported, never rerun locally.
-IBENV=~/.config/picoclaw/instabox.env  # INSTABOX_API_KEY, INSTABOX_MACHINE (m_...), optional INSTABOX_API_URL
-if [ -r "$IBENV" ] && [ "${HEAVY_TASK_LOCAL:-}" != 1 ] && [ "${HEAVY_TASK_DRY:-}" != 1 ]; then
-  IB_KEY=$(sed -n 's/^INSTABOX_API_KEY=//p' "$IBENV"); IB_M=$(sed -n 's/^INSTABOX_MACHINE=//p' "$IBENV")
-  IB_URL=$(sed -n 's/^INSTABOX_API_URL=//p' "$IBENV"); IB_URL=${IB_URL:-https://api.instabox.sh}
-  api() { curl -sS --max-time 90 -H "X-API-Key: $IB_KEY" "$@"; }
-  jget() { python3 -c 'import sys,json
-try: d=json.load(sys.stdin)
-except Exception: sys.exit(1)
-for k in sys.argv[1].split("."): d=d.get(k) if isinstance(d,dict) else None
-print("" if d is None else d)' "$1"; }
-  # rexec <timeoutSec> <cmd> [stdin]: run on the machine, print stdout; exit code = remote exit code (99 = API error)
-  rexec() {
-    local r; r=$(python3 -c 'import json,sys; print(json.dumps({"cmd":"export PATH=$HOME/.local/bin:$PATH; "+sys.argv[2],"timeoutSeconds":int(sys.argv[1]),"stdin":sys.argv[3] if len(sys.argv)>3 else ""}))' "$@" \
-      | api -H 'Content-Type: application/json' --data-binary @- "$IB_URL/v1/machines/$IB_M/exec") || return 99
-    printf '%s' "$(printf '%s' "$r" | jget stdout)"; local rc; rc=$(printf '%s' "$r" | jget exitCode) || return 99
-    [ -n "$rc" ] || { printf '%s' "$r" | head -c 300 >&2; return 99; }; return "$rc"
-  }
-  ib_up() {
-    local st i r
-    st=$(api "$IB_URL/v1/machines/$IB_M" | jget state)
-    [ -n "$st" ] || { echo "mesin tidak ditemukan / API error" >&2; return 1; }
-    [ "$st" = running ] && return 0
-    # cooldown (409) or quota errors come back as {"error":...}: fail fast instead of polling
-    r=$(api -X POST -H "Idempotency-Key: $(uuidgen)" "$IB_URL/v1/machines/$IB_M/start") || return 1
-    i=$(printf '%s' "$r" | jget error.code); [ -z "$i" ] || { echo "$i" >&2; return 1; }
-    for i in $(seq 30); do sleep 3; st=$(api "$IB_URL/v1/machines/$IB_M" | jget state); [ "$st" = running ] && return 0; done
-    echo "state=$st" >&2; return 1
-  }
+if ib_init; then
   RJ=heavy/$(basename "$JOB")
   if ib_up 2>"$JOB/instabox.err" && rexec 30 "mkdir -p ~/$RJ && cat > ~/$RJ/instr.txt" "$INSTR" >/dev/null &&
      rexec 30 "cd ~/$RJ && setsid bash -c 'timeout --kill-after=30s ${TIMEOUT}m pi -p --no-session --model \"$MODEL\" --thinking off \"\$(cat instr.txt)\" >job.log 2>&1; echo \$? >rc; agent-browser close >/dev/null 2>&1' </dev/null >/dev/null 2>&1 & echo \$! > ~/$RJ/pid" >/dev/null; then
@@ -78,9 +106,15 @@ print("" if d is None else d)' "$1"; }
     [ "$RC" -eq 124 ] && echo "timeout (${TIMEOUT} menit)"
     tail -c 12000 "$JOB/job.log" 2>/dev/null || echo "job.log tidak terambil dari InstaBox"
     echo "log: $JOB/job.log (dijalankan di InstaBox)"
+    if [ -n "${HEAVY_TASK_COPY_TO:-}" ]; then
+      mkdir -p "$HEAVY_TASK_COPY_TO" && cp -r "$JOB"/. "$HEAVY_TASK_COPY_TO"/ && rm -f "$HEAVY_TASK_COPY_TO/instabox.err" && echo "hasil: $HEAVY_TASK_COPY_TO"
+    fi
     exit "$RC"
   fi
+  [ "$REMOTE_ONLY" = 1 ] && { echo "InstaBox tidak bisa dipakai ($(head -c 200 "$JOB/instabox.err")); job tidak dijalankan di VM bot" >&2; exit 69; }
   echo "InstaBox tidak bisa dipakai ($(head -c 200 "$JOB/instabox.err")), jalan lokal" >&2
+elif [ "$REMOTE_ONLY" = 1 ]; then
+  echo "InstaBox belum dikonfigurasi; job tidak dijalankan di VM bot" >&2; exit 69
 fi
 
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"

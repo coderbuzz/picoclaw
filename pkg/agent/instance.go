@@ -179,6 +179,9 @@ func NewAgentInstance(
 	if agentCfg != nil && agentCfg.GroupTrust != nil {
 		toolsRegistry.Register(tools.NewGroupTrustTool(agentCfg.GroupTrust, workspace))
 	}
+	if agentCfg != nil && agentCfg.HeavyTask != nil && len(agentCfg.HeavyTask.Models) > 0 {
+		toolsRegistry.Register(tools.NewHeavyTaskTool(agentCfg.HeavyTask, workspace))
+	}
 
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessions := initSessionStore(sessionsDir)

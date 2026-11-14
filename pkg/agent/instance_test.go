@@ -1421,3 +1421,20 @@ func TestNewAgentInstance_BrowserToolOnlyWithAgentConfig(t *testing.T) {
 		t.Fatal("browser tool missing for agent with browser config")
 	}
 }
+
+func TestNewAgentInstance_HeavyTaskToolOnlyWithModels(t *testing.T) {
+	cfg := &config.Config{Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
+		Workspace: t.TempDir(), ModelName: "test-model", MaxToolIterations: 5,
+	}}}
+	for _, ac := range []*config.AgentConfig{{ID: "plain"}, {ID: "nomodels", HeavyTask: &config.AgentHeavyTaskConfig{}}} {
+		if _, ok := NewAgentInstance(ac, &cfg.Agents.Defaults, cfg, &mockProvider{}).Tools.Get("heavy_task"); ok {
+			t.Fatalf("heavy_task registered for %s", ac.ID)
+		}
+	}
+	withH := NewAgentInstance(
+		&config.AgentConfig{ID: "h", HeavyTask: &config.AgentHeavyTaskConfig{Models: []string{"anthropic/claude-haiku-5-5"}}},
+		&cfg.Agents.Defaults, cfg, &mockProvider{})
+	if _, ok := withH.Tools.Get("heavy_task"); !ok {
+		t.Fatal("heavy_task tool missing for agent with heavy_task models")
+	}
+}
