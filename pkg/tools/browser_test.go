@@ -83,3 +83,35 @@ func TestBrowserExecute(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBrowserExecuteRemote(t *testing.T) {
+	ws := t.TempDir()
+	tool := NewBrowserTool(&config.AgentBrowserConfig{Command: "heavy-task", Remote: true}, ws)
+	if tool.timeout.Seconds() != 120 {
+		t.Fatalf("remote default timeout %v", tool.timeout)
+	}
+	var cmd string
+	var got []string
+	tool.run = func(_ context.Context, c string, args []string) ([]byte, error) {
+		cmd, got = c, args
+		if args[1] == "screenshot" {
+			os.WriteFile(args[3], []byte("png"), 0o644)
+		}
+		return []byte("  Hi there \n"), nil
+	}
+	if r := tool.Execute(context.Background(), map[string]any{"url": "http://10.1.2.3/"}); !r.IsError {
+		t.Error("private host not rejected in remote mode")
+	}
+	r := tool.Execute(context.Background(), map[string]any{"url": "https://example.com"})
+	if r.IsError || r.ForLLM != "Hi there" || cmd != "heavy-task" || strings.Join(got, " ") != "--browser text https://example.com" {
+		t.Fatalf("text: %+v %s %v", r, cmd, got)
+	}
+	r = tool.Execute(context.Background(), map[string]any{"url": "https://example.com", "action": "screenshot"})
+	rel := strings.TrimPrefix(r.ForLLM, "screenshot saved: ")
+	if r.IsError || got[3] != filepath.Join(ws, rel) {
+		t.Fatalf("screenshot: %+v %v", r, got)
+	}
+	if _, err := os.Stat(filepath.Join(ws, rel)); err != nil {
+		t.Fatal(err)
+	}
+}

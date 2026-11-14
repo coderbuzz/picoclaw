@@ -329,6 +329,16 @@ type AgentConfig struct {
 	Browser *AgentBrowserConfig `json:"browser,omitempty"`
 	// GroupTrust enables the built-in group_trust tool (runs the host's group-agents trust command) for this agent; nil = tool not registered.
 	GroupTrust *AgentGroupTrustConfig `json:"group_trust,omitempty"`
+	// HeavyTask enables the built-in heavy_task tool (host heavy-task script, InstaBox only) for this agent; nil = tool not registered.
+	HeavyTask *AgentHeavyTaskConfig `json:"heavy_task,omitempty"`
+}
+
+// AgentHeavyTaskConfig: Models are the provider/id values the agent may pick, the first being the default.
+// Command defaults to "heavy-task", TimeoutMinutes to 20.
+type AgentHeavyTaskConfig struct {
+	Command        string   `json:"command,omitempty"`
+	Models         []string `json:"models"`
+	TimeoutMinutes int      `json:"timeout_minutes,omitempty"`
 }
 
 // AgentGroupTrustConfig fixes which group profile the group_trust tool manages; the agent cannot choose it.
@@ -338,10 +348,12 @@ type AgentGroupTrustConfig struct {
 	Command string `json:"command,omitempty"`
 }
 
-// AgentBrowserConfig: Command defaults to "chromium", TimeoutSeconds to 45.
+// AgentBrowserConfig: Command defaults to "chromium", TimeoutSeconds to 45 (120 when Remote).
+// Remote runs `<command> --browser text|screenshot <url> [out.png]` (heavy-task, page opened on InstaBox) instead of a local Chromium.
 type AgentBrowserConfig struct {
 	Command        string `json:"command,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	Remote         bool   `json:"remote,omitempty"`
 }
 
 // AgentGoogleConfig limits what the google tool may touch: Files are file IDs (["*"] = anything the

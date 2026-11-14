@@ -33,6 +33,7 @@ type BrowserTool struct {
 	command   string
 	timeout   time.Duration
 	workspace string
+	remote    bool
 
 	// overridable for tests
 	run  func(ctx context.Context, command string, args []string) ([]byte, error)
@@ -40,7 +41,7 @@ type BrowserTool struct {
 }
 
 func NewBrowserTool(cfg *config.AgentBrowserConfig, workspace string) *BrowserTool {
-	t := &BrowserTool{command: cfg.Command, timeout: time.Duration(cfg.TimeoutSeconds) * time.Second, workspace: workspace,
+	t := &BrowserTool{command: cfg.Command, timeout: time.Duration(cfg.TimeoutSeconds) * time.Second, workspace: workspace, remote: cfg.Remote,
 		run:  runBrowserCommand,
 		dial: utils.NewSafeDialContext(&net.Dialer{Timeout: 15 * time.Second}, nil, nil)}
 	if t.command == "" {
@@ -48,6 +49,9 @@ func NewBrowserTool(cfg *config.AgentBrowserConfig, workspace string) *BrowserTo
 	}
 	if t.timeout <= 0 {
 		t.timeout = 45 * time.Second
+		if t.remote { // may include waking the InstaBox machine
+			t.timeout = 120 * time.Second
+		}
 	}
 	return t
 }
@@ -85,6 +89,9 @@ func (t *BrowserTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 	}
 	if action != "text" && action != "screenshot" {
 		return ErrorResult("browser: unknown action " + action)
+	}
+	if t.remote {
+		return t.executeRemote(ctx, action, u.String())
 	}
 
 	browserMu.Lock()
@@ -130,15 +137,41 @@ func (t *BrowserTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 	if action == "screenshot" {
 		return NewToolResult("screenshot saved: " + filepath.ToSlash(rel))
 	}
-	text := integrationtools.ExtractText(string(out))
-	if len(text) > browserMaxOutput {
-		text = text[:browserMaxOutput]
-		for !utf8.ValidString(text) {
-			text = text[:len(text)-1]
+	return NewToolResult(truncateBrowserText(integrationtools.ExtractText(string(out))))
+}
+
+// executeRemote opens the page on the InstaBox machine (heavy-task --browser): no Chromium and no proxy on this host.
+func (t *BrowserTool) executeRemote(ctx context.Context, action, pageURL string) *ToolResult {
+	ctx, cancel := context.WithTimeout(ctx, t.timeout)
+	defer cancel()
+	args := []string{"--browser", action, pageURL}
+	rel := ""
+	if action == "screenshot" {
+		rel = filepath.Join("out", fmt.Sprintf("browser-%d.png", time.Now().Unix()))
+		if err := os.MkdirAll(filepath.Join(t.workspace, "out"), 0o755); err != nil {
+			return ErrorResult("browser: " + err.Error())
 		}
-		text += "\n[truncated]"
+		args = append(args, filepath.Join(t.workspace, rel))
 	}
-	return NewToolResult(text)
+	out, err := t.run(ctx, t.command, args)
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("browser: %v", err))
+	}
+	if action == "screenshot" {
+		return NewToolResult("screenshot saved: " + filepath.ToSlash(rel))
+	}
+	return NewToolResult(truncateBrowserText(strings.TrimSpace(string(out))))
+}
+
+func truncateBrowserText(text string) string {
+	if len(text) <= browserMaxOutput {
+		return text
+	}
+	text = text[:browserMaxOutput]
+	for !utf8.ValidString(text) {
+		text = text[:len(text)-1]
+	}
+	return text + "\n[truncated]"
 }
 
 func runBrowserCommand(ctx context.Context, command string, args []string) ([]byte, error) {

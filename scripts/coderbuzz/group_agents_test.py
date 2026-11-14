@@ -64,8 +64,12 @@ class GroupAgentsTest(unittest.TestCase):
         for role in ("admin", "staff"):
             self.assertIn(" google,", open(os.path.join(self.ws("ws-club-" + role), "AGENT.md")).read())
             self.assertEqual(by_id["club-" + role]["google"], {"files": ["*"], "write": True})
-            self.assertIn(" browser]", open(os.path.join(self.ws("ws-club-" + role), "AGENT.md")).read())
-            self.assertTrue(by_id["club-" + role]["browser"]["command"].endswith("/.local/bin/browser-run"))
+            self.assertIn(" browser,", open(os.path.join(self.ws("ws-club-" + role), "AGENT.md")).read())
+            b = by_id["club-" + role]["browser"]
+            self.assertTrue(b["remote"] and b["command"].endswith("/.local/bin/heavy-task"))
+            self.assertIn(" heavy_task]", open(os.path.join(self.ws("ws-club-" + role), "AGENT.md")).read())
+        self.assertEqual(len(by_id["club-admin"]["heavy_task"]["models"]), 2)
+        self.assertEqual(by_id["club-staff"]["heavy_task"]["models"], ["anthropic/claude-haiku-5-5"])
         self.assertNotIn("google", by_id["club"])
         self.assertNotIn("browser", by_id["club"])
         self.assertEqual(by_id["club-admin"]["group_trust"], {"profile": "club"})
