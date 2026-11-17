@@ -567,6 +567,9 @@ toolLoop:
 			ts.sessionKey,
 			ts.opts.Dispatch.SessionScope,
 		)
+		if in := ts.opts.Dispatch.InboundContext; in != nil {
+			execCtx = tools.WithToolSender(execCtx, in.ChatType, in.SenderID)
+		}
 		toolResult := ts.agent.Tools.ExecuteWithContext(
 			execCtx,
 			toolName,

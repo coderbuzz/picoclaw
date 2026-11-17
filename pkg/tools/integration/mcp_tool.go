@@ -15,6 +15,7 @@ import (
 
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	picomcp "github.com/sipeed/picoclaw/pkg/mcp"
 	"github.com/sipeed/picoclaw/pkg/media"
 	toolshared "github.com/sipeed/picoclaw/pkg/tools/shared"
 )
@@ -256,7 +257,7 @@ func (t *MCPTool) Execute(ctx context.Context, args map[string]any) *ToolResult 
 	startedAt := time.Now()
 	t.publishRuntimeEvent(ctx, runtimeevents.KindMCPToolCallStart, startedAt, false, "")
 
-	result, err := t.manager.CallTool(ctx, t.serverName, t.tool.Name, args)
+	result, err := t.manager.CallTool(withCallerMeta(ctx), t.serverName, t.tool.Name, args)
 	if err != nil {
 		t.publishRuntimeEvent(ctx, runtimeevents.KindMCPToolCallEnd, startedAt, true, err.Error())
 		return ErrorResult(fmt.Sprintf("MCP tool execution failed: %v", err)).WithError(err)
@@ -685,4 +686,22 @@ func compactStrings(parts []string) []string {
 		compact = append(compact, part)
 	}
 	return compact
+}
+
+// withCallerMeta passes the turn's chat, sender and agent to the server in _meta, so apps can scope answers
+// to the group or person asking without trusting model-written arguments.
+func withCallerMeta(ctx context.Context) context.Context {
+	caller := map[string]string{}
+	for k, v := range map[string]string{
+		"channel":   toolshared.ToolChannel(ctx),
+		"chat_id":   toolshared.ToolChatID(ctx),
+		"chat_type": toolshared.ToolChatType(ctx),
+		"sender_id": toolshared.ToolSenderID(ctx),
+		"agent_id":  toolshared.ToolAgentID(ctx),
+	} {
+		if v != "" {
+			caller[k] = v
+		}
+	}
+	return picomcp.WithCallerMeta(ctx, caller)
 }

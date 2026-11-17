@@ -310,6 +310,9 @@ func updateResolver(path string) {
 	secConfigDir = path
 }
 
+// ResolveSecretRef returns v, or the secret it points to when it starts with file:// or enc://.
+func ResolveSecretRef(v string) (string, error) { return resolveKey(v) }
+
 func resolveKey(v string) (string, error) {
 	secResolverMu.RLock()
 	resolver := secResolver
