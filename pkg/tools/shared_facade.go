@@ -53,6 +53,10 @@ func WithToolInboundContext(
 	return toolshared.WithToolInboundContext(ctx, channel, chatID, messageID, replyToMessageID)
 }
 
+func WithToolSender(ctx context.Context, chatType, senderID string) context.Context {
+	return toolshared.WithToolSender(ctx, chatType, senderID)
+}
+
 func WithToolSessionContext(
 	ctx context.Context,
 	agentID, sessionKey string,

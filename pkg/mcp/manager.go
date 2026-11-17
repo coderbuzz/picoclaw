@@ -376,11 +376,20 @@ func connectServer(
 
 		// Add custom headers if provided
 		if len(cfg.Headers) > 0 {
+			// Header values may be file:// or enc:// refs so tokens stay out of config.json.
+			headers := make(map[string]string, len(cfg.Headers))
+			for k, v := range cfg.Headers {
+				resolved, err := config.ResolveSecretRef(v)
+				if err != nil {
+					return nil, fmt.Errorf("header %s: %w", k, err)
+				}
+				headers[k] = resolved
+			}
 			// Create a custom HTTP client with header-injecting transport
 			sseTransport.HTTPClient = &http.Client{
 				Transport: &headerTransport{
 					base:    http.DefaultTransport,
-					headers: cfg.Headers,
+					headers: headers,
 				},
 			}
 			logger.DebugCF("mcp", "Added custom HTTP headers",
@@ -534,6 +543,7 @@ func (m *Manager) CallTool(
 	params := &mcp.CallToolParams{
 		Name:      toolName,
 		Arguments: arguments,
+		Meta:      callMeta(ctx),
 	}
 
 	result, err := conn.Session.CallTool(ctx, params)

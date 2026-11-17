@@ -50,6 +50,8 @@ var (
 	ctxKeyAgentID          = &toolCtxKey{"agentID"}
 	ctxKeySessionKey       = &toolCtxKey{"sessionKey"}
 	ctxKeySessionScope     = &toolCtxKey{"sessionScope"}
+	ctxKeyChatType         = &toolCtxKey{"chatType"}
+	ctxKeySenderID         = &toolCtxKey{"senderID"}
 )
 
 // WithToolContext returns a child context carrying channel and chatID.
@@ -121,6 +123,24 @@ func ToolReplyToMessageID(ctx context.Context) string {
 	if !ok {
 		return ""
 	}
+	return v
+}
+
+// WithToolSender records the inbound chat type (direct/group) and sender for tools that pass caller facts on.
+func WithToolSender(ctx context.Context, chatType, senderID string) context.Context {
+	ctx = context.WithValue(ctx, ctxKeyChatType, chatType)
+	return context.WithValue(ctx, ctxKeySenderID, senderID)
+}
+
+// ToolChatType extracts the inbound chat type from ctx, or "" if unset.
+func ToolChatType(ctx context.Context) string {
+	v, _ := ctx.Value(ctxKeyChatType).(string)
+	return v
+}
+
+// ToolSenderID extracts the inbound sender ID from ctx, or "" if unset.
+func ToolSenderID(ctx context.Context) string {
+	v, _ := ctx.Value(ctxKeySenderID).(string)
 	return v
 }
 
