@@ -43,6 +43,7 @@ MAIN_WS = os.path.join(PICO, "workspace")
 TRUST = "trusted-"
 IDLE_RESET_MINUTES = 1440
 HEAVY_TASK = os.path.expanduser("~/.local/bin/heavy-task")
+HEAVY_TIMEOUT_MINUTES = 8  # a group job holds a turn slot; long research belongs in the owner's DM
 HEAVY_MODELS = ["anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5"]  # first = default
 ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 GROUP_RE = re.compile(r"^[0-9-]+@g\.us$")
@@ -57,6 +58,7 @@ WORK_RULES = """- `exec` berjalan di sandbox: hanya workspace ini dan data anggo
 - Data bersama ada di `{shared}/` (dibaca juga oleh asisten anggota). Hasil kerja baru simpan di `out/` workspace ini lalu kirim dengan `send_file`. XLSX: `exec` dengan `python3` + `openpyxl`. Sebelum menimpa file data bersama, salin dulu ke `<nama>.bak-<tanggal>`.
 - Untuk Google Sheet/Doc/Slide yang dibagikan pemilik ke akun layanan bot, pakai tool `google` (`drive_list` untuk melihat file yang tersedia) (bukan `exec`). File baru tidak bisa dibuat bot: minta pemilik membuatnya lalu membagikannya ke akun layanan bot. Bila tool `google` tidak tersedia atau menolak file/aksi, sampaikan bahwa pemilik perlu mengaturnya.
 - Halaman web yang butuh JavaScript: pakai tool `browser` (text, atau screenshot lalu `send_file`), bukan chromium lewat `exec`. Situs yang wajib login biasanya hanya menampilkan halaman login; sampaikan apa adanya.
+- Riset dari situs publik: pakai `web_fetch` dulu (baca 2-4 halaman yang relevan, mulai dari tautan yang diberikan) lalu jawab yang ditanya saja secara ringkas, dan tawarkan detail lanjutan. Jangan memecah satu pertanyaan menjadi tugas besar berbagian banyak. `heavy_task` hanya bila halaman butuh login/JavaScript, `web_fetch` gagal, atau orang memang meminta laporan/file panjang; batasnya 8 menit, jadi instruksinya fokus (satu tujuan, situs sedikit).
 - Pekerjaan berat (browser bertahap, unduh/transkrip video, scraping, riset panjang): tool `heavy_task`, satu job sekali jalan, dengan instruksi lengkap (tujuan, input, hasil yang diharapkan, file yang disimpan). Kabari dulu bahwa job berjalan (15-60 detik, bisa beberapa menit). File hasil ada di `out/heavy-<waktu>/`. Model: bawaan (Haiku) untuk buka halaman, scraping, unduh, transkrip, ringkasan biasa; model lebih kuat (Sonnet, bila tersedia) hanya untuk analisis/perbandingan banyak sumber, riset panjang, atau laporan penting. Ragu: bawaan. Gagal 2 kali: berhenti dan laporkan.
 - Laporkan hasil singkat: apa yang dibuat/diubah dan nama filenya."""
 
@@ -65,6 +67,7 @@ TEMPLATES = {
 name: {id}
 description: Asisten grup WhatsApp {id} untuk anggota (baca saja).
 tools: [read_file, list_dir, web_search, web_fetch, message, send_file, load_image, reaction]
+mcpServers: []
 ---
 
 ## Konteks
@@ -80,6 +83,7 @@ tools: [read_file, list_dir, web_search, web_fetch, message, send_file, load_ima
 name: {id}-admin
 description: Asisten kerja grup WhatsApp {id} untuk pemilik bot; juga mengatur izin anggota.
 tools: [read_file, write_file, edit_file, append_file, list_dir, exec, google, group_trust, web_search, web_fetch, message, send_file, load_image, reaction, browser, heavy_task]
+mcpServers: []
 allow_read_paths:
   - '^{shared_re}(/|$)'
 allow_write_paths:
@@ -109,6 +113,7 @@ Bot restart 20 detik setelah izin berubah; sampaikan hasilnya singkat.
 name: {id}-staff
 description: Asisten kerja grup WhatsApp {id} untuk anggota yang diizinkan pemilik.
 tools: [read_file, write_file, edit_file, append_file, list_dir, exec, google, web_search, web_fetch, message, send_file, load_image, reaction, browser, heavy_task]
+mcpServers: []
 allow_read_paths:
   - '^{shared_re}(/|$)'
 allow_write_paths:
@@ -276,7 +281,7 @@ def work_defaults(shared, aid, role):
     d = {"isolation": isolation_for(shared), "google": {"files": ["*"], "write": True},
          # browser and heavy_task run heavy-task on the host, which opens the page / runs the job on InstaBox only
          "browser": {"command": HEAVY_TASK, "remote": True},
-         "heavy_task": {"command": HEAVY_TASK, "models": [HEAVY_MODELS[0]]}}
+         "heavy_task": {"command": HEAVY_TASK, "models": [HEAVY_MODELS[0]], "timeout_minutes": HEAVY_TIMEOUT_MINUTES}}
     if role == "-admin":  # group_trust runs group-agents on the host, outside the sandbox; only the owner's agent
         d["group_trust"] = {"profile": aid[: -len(role)]}
         d["heavy_task"]["models"] = HEAVY_MODELS  # the stronger model only for the owner's agent
