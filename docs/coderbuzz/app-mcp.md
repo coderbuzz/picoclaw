@@ -75,6 +75,9 @@ mcpServers: [sirkel_grup]       # group work/member agents that may ask the app
 mcpServers: []                  # everyone else
 ```
 
+`scripts/coderbuzz/group-agents new` writes `mcpServers: []` for every new profile agent; to let a group profile ask an
+app, change it to that app's group server and add the tool names below.
+
 Agents with a `tools:` allowlist must also list the tool names, which are `mcp_<server>_<tool>`
 (e.g. `mcp_sirkel_grup_konteks`). Add a line to the agent's instructions: numbers from the app are the source of truth,
 quote the as-of time, and say so plainly when the app refuses.

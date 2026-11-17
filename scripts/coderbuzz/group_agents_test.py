@@ -70,6 +70,9 @@ class GroupAgentsTest(unittest.TestCase):
             self.assertIn(" heavy_task]", open(os.path.join(self.ws("ws-club-" + role), "AGENT.md")).read())
         self.assertEqual(len(by_id["club-admin"]["heavy_task"]["models"]), 2)
         self.assertEqual(by_id["club-staff"]["heavy_task"]["models"], ["anthropic/claude-haiku-5-5"])
+        self.assertEqual(by_id["club-staff"]["heavy_task"]["timeout_minutes"], 8)
+        for ws in ("ws-club", "ws-club-admin", "ws-club-staff"):
+            self.assertIn("\nmcpServers: []\n", open(os.path.join(self.ws(ws), "AGENT.md")).read())
         self.assertNotIn("google", by_id["club"])
         self.assertNotIn("browser", by_id["club"])
         self.assertEqual(by_id["club-admin"]["group_trust"], {"profile": "club"})
