@@ -4,9 +4,12 @@ package agent
 
 import (
 	"github.com/sipeed/picoclaw/pkg/audio/asr"
+	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/media"
+	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
@@ -21,6 +24,19 @@ func (al *AgentLoop) RegisterTool(tool tools.Tool) {
 
 func (al *AgentLoop) SetChannelManager(cm *channels.Manager) {
 	al.channelManager = cm
+	if cm != nil {
+		cm.SetSilentFilter(func(ic bus.InboundContext) bool {
+			route := al.GetRegistry().ResolveRoute(ic)
+			logSilentDrop(route)
+			return route.Silent
+		})
+	}
+}
+
+func logSilentDrop(route routing.ResolvedRoute) {
+	if route.Silent {
+		logger.InfoCF("agent", "dispatch dropped (silent rule)", map[string]any{"rule": route.MatchedBy})
+	}
 }
 
 func (al *AgentLoop) GetRegistry() *AgentRegistry {

@@ -156,6 +156,10 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	if routeErr != nil {
 		return "", routeErr
 	}
+	if route.Silent { // channels already drop these; this catches cron/system turns aimed at a silenced chat
+		logSilentDrop(route)
+		return "", nil
+	}
 
 	allocation := al.allocateRouteSession(route, msg)
 

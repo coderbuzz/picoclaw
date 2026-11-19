@@ -257,7 +257,7 @@ func (t *MCPTool) Execute(ctx context.Context, args map[string]any) *ToolResult 
 	startedAt := time.Now()
 	t.publishRuntimeEvent(ctx, runtimeevents.KindMCPToolCallStart, startedAt, false, "")
 
-	result, err := t.manager.CallTool(withCallerMeta(ctx), t.serverName, t.tool.Name, args)
+	result, err := t.manager.CallTool(WithCallerMeta(ctx), t.serverName, t.tool.Name, args)
 	if err != nil {
 		t.publishRuntimeEvent(ctx, runtimeevents.KindMCPToolCallEnd, startedAt, true, err.Error())
 		return ErrorResult(fmt.Sprintf("MCP tool execution failed: %v", err)).WithError(err)
@@ -688,9 +688,9 @@ func compactStrings(parts []string) []string {
 	return compact
 }
 
-// withCallerMeta passes the turn's chat, sender and agent to the server in _meta, so apps can scope answers
+// WithCallerMeta passes the turn's chat, sender and agent to the server in _meta, so apps can scope answers
 // to the group or person asking without trusting model-written arguments.
-func withCallerMeta(ctx context.Context) context.Context {
+func WithCallerMeta(ctx context.Context) context.Context {
 	caller := map[string]string{}
 	for k, v := range map[string]string{
 		"channel":   toolshared.ToolChannel(ctx),

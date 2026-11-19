@@ -94,6 +94,7 @@ type BaseChannel struct {
 	placeholderRecorder PlaceholderRecorder
 	owner               Channel // the concrete channel that embeds this BaseChannel
 	reasoningChannelID  string
+	silent              atomic.Pointer[func(bus.InboundContext) bool] // true = drop before any typing/reaction/placeholder
 }
 
 func NewBaseChannel(
@@ -312,6 +313,10 @@ func (c *BaseChannel) HandleMessageWithContext(
 	}
 	msg = bus.NormalizeInboundMessage(msg)
 
+	if f := c.silent.Load(); f != nil && (*f)(msg.Context) {
+		return nil
+	}
+
 	// Auto-trigger typing indicator, message reaction, and placeholder before publishing.
 	// Each capability is independent — all three may fire for the same message.
 	// Note: even when streaming is available, we still show typing + placeholder on inbound.
@@ -386,6 +391,9 @@ func (c *BaseChannel) SetPlaceholderRecorder(r PlaceholderRecorder) {
 func (c *BaseChannel) GetPlaceholderRecorder() PlaceholderRecorder {
 	return c.placeholderRecorder
 }
+
+// SetSilentFilter injects the check that drops messages matched by a silent dispatch rule.
+func (c *BaseChannel) SetSilentFilter(f func(bus.InboundContext) bool) { c.silent.Store(&f) }
 
 // SetOwner injects the concrete channel that embeds this BaseChannel.
 // This allows HandleMessage to auto-trigger TypingCapable / ReactionCapable / PlaceholderCapable.

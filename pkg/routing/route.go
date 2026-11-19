@@ -21,7 +21,12 @@ type ResolvedRoute struct {
 	AccountID     string
 	SessionPolicy SessionPolicy
 	MatchedBy     string
+	// Silent: a dispatch rule with agent "-" matched; the message is dropped (no agent, no reply).
+	Silent bool
 }
+
+// SilentAgent is the dispatch rule agent value that drops matching messages.
+const SilentAgent = "-"
 
 // RouteResolver determines which agent handles a message.
 type RouteResolver struct {
@@ -43,6 +48,12 @@ func (r *RouteResolver) ResolveRoute(inbound bus.InboundContext) ResolvedRoute {
 	view := buildDispatchView(inbound, identityLinks)
 
 	if rule := r.matchDispatchRule(view); rule != nil {
+		if strings.TrimSpace(rule.Agent) == SilentAgent {
+			return ResolvedRoute{
+				AgentID: SilentAgent, Channel: channel, AccountID: accountID,
+				SessionPolicy: r.sessionPolicy(rule), MatchedBy: matchedByForRule(rule), Silent: true,
+			}
+		}
 		return ResolvedRoute{
 			AgentID:       r.pickAgentID(rule.Agent),
 			Channel:       channel,

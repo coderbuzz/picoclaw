@@ -231,3 +231,28 @@ func TestResolveRoute_NoDefaultUsesFirst(t *testing.T) {
 		t.Errorf("AgentID = %q, want 'alpha' (first in list)", route.AgentID)
 	}
 }
+
+func TestResolveRoute_SilentRuleDropsOnlyWhatItMatches(t *testing.T) {
+	cfg := testConfig([]config.AgentConfig{{ID: "main", Default: true}, {ID: "owner"}})
+	cfg.Agents.Dispatch = &config.DispatchConfig{
+		Rules: []config.DispatchRule{
+			{Name: "owner", Agent: "owner", When: config.DispatchSelector{Channel: "whatsapp", Chat: "group:g1", Sender: "100"}},
+			{Name: "members", Agent: " - ", When: config.DispatchSelector{Channel: "whatsapp", Chat: "group:g1"}},
+		},
+	}
+	r := NewRouteResolver(cfg)
+	in := bus.InboundContext{Channel: "whatsapp", ChatID: "g1", ChatType: "group", SenderID: "100"}
+
+	if route := r.ResolveRoute(in); route.Silent || route.AgentID != "owner" {
+		t.Fatalf("owner rule must stay first: %+v", route)
+	}
+	in.SenderID = "200"
+	route := r.ResolveRoute(in)
+	if !route.Silent || route.AgentID != SilentAgent || route.MatchedBy != "dispatch.rule:members" {
+		t.Fatalf("member = %+v, want silent via members rule", route)
+	}
+	in.ChatID = "g2"
+	if route := r.ResolveRoute(in); route.Silent || route.AgentID != "main" {
+		t.Fatalf("other chat = %+v, want default", route)
+	}
+}

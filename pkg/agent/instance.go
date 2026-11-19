@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/groupactivity"
 	"github.com/sipeed/picoclaw/pkg/isolation"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/media"
@@ -181,6 +182,12 @@ func NewAgentInstance(
 	}
 	if agentCfg != nil && agentCfg.HeavyTask != nil && len(agentCfg.HeavyTask.Models) > 0 {
 		toolsRegistry.Register(tools.NewHeavyTaskTool(agentCfg.HeavyTask, workspace))
+	}
+
+	if agentCfg != nil && agentCfg.GroupActivity {
+		if ga, dbPath := groupactivity.Settings(cfg); ga != nil {
+			toolsRegistry.Register(tools.NewGroupActivityTool(ga, dbPath))
+		}
 	}
 
 	sessionsDir := filepath.Join(workspace, "sessions")

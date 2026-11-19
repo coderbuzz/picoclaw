@@ -331,6 +331,22 @@ type AgentConfig struct {
 	GroupTrust *AgentGroupTrustConfig `json:"group_trust,omitempty"`
 	// HeavyTask enables the built-in heavy_task tool (host heavy-task script, InstaBox only) for this agent; nil = tool not registered.
 	HeavyTask *AgentHeavyTaskConfig `json:"heavy_task,omitempty"`
+	// GroupActivity registers the group_activity tool (per-member message counts of the current group); needs
+	// channel_list.whatsapp.settings.group_activity.
+	GroupActivity bool `json:"group_activity,omitempty"`
+}
+
+// GroupActivityConfig turns on message counting for the listed WhatsApp groups. Only counts are stored (no content).
+// Names optionally resolves numbers to member names through an MCP tool the bot calls itself.
+type GroupActivityConfig struct {
+	Groups        []string                `json:"groups"`
+	RetentionDays int                     `json:"retention_days,omitempty"` // default 90
+	Names         *GroupActivityNamesTool `json:"names,omitempty"`
+}
+
+type GroupActivityNamesTool struct {
+	Server string `json:"server"`
+	Tool   string `json:"tool"`
 }
 
 // AgentHeavyTaskConfig: Models are the provider/id values the agent may pick, the first being the default.
@@ -609,6 +625,8 @@ type WhatsAppSettings struct {
 	DMWebhooks []DMWebhook `json:"dm_webhooks" yaml:"-"`
 	// MsgHub receives outbound notifications from a message hub (nil = off).
 	MsgHub *MsgHubConfig `json:"msg_hub" yaml:"-"`
+	// GroupActivity counts messages per member for the listed groups (nil = off).
+	GroupActivity *GroupActivityConfig `json:"group_activity,omitempty" yaml:"-"`
 }
 
 type TelegramSettings struct {
@@ -1339,6 +1357,9 @@ type MCPServerConfig struct {
 	URL string `json:"url,omitempty"`
 	// Headers are HTTP headers to send with requests (sse/http only)
 	Headers map[string]string `json:"headers,omitempty"`
+	// HiddenTools are not registered for any agent (even one without an mcpServers allowlist) but stay callable
+	// by code through the MCP manager.
+	HiddenTools []string `json:"hidden_tools,omitempty"`
 }
 
 // MCPConfig defines configuration for all MCP servers

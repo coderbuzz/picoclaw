@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -317,5 +318,26 @@ func TestHandleInboundContext_PublishesNormalizedContext(t *testing.T) {
 				t.Fatalf("ChatType = %q, want %q", msg.Context.ChatType, tt.inbound.ChatType)
 			}
 		})
+	}
+}
+
+func TestSilentFilterDropsBeforePublish(t *testing.T) {
+	mb := bus.NewMessageBus()
+	bc := NewBaseChannel("test", nil, mb, nil)
+	drop := true
+	bc.SetSilentFilter(func(ic bus.InboundContext) bool { return drop && ic.ChatID == "g1" })
+
+	_ = bc.HandleInboundContext(context.Background(), "g1", "halo", nil, bus.InboundContext{ChatID: "g1", SenderID: "u"})
+	select {
+	case <-mb.InboundChan():
+		t.Fatal("silenced message was published")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	_ = bc.HandleInboundContext(context.Background(), "g2", "halo", nil, bus.InboundContext{ChatID: "g2", SenderID: "u"})
+	select {
+	case <-mb.InboundChan():
+	case <-time.After(time.Second):
+		t.Fatal("other chat must still be published")
 	}
 }
