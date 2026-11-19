@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"context"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/sipeed/picoclaw/pkg/audio/tts"
@@ -37,6 +39,11 @@ type (
 	WebSearchToolOptions     = integrationtools.WebSearchToolOptions
 	WebFetchTool             = integrationtools.WebFetchTool
 )
+
+// WithCallerMeta puts the turn's chat, sender and agent on ctx for MCP calls made by code.
+func WithCallerMeta(ctx context.Context) context.Context {
+	return integrationtools.WithCallerMeta(ctx)
+}
 
 func NewMCPTool(manager MCPManager, serverName string, tool *mcp.Tool) *MCPTool {
 	return integrationtools.NewMCPTool(manager, serverName, tool)

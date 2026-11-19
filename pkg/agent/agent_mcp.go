@@ -9,6 +9,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -147,6 +148,9 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 			registeredToolsByAgent := make(map[string]map[string]struct{}, len(agentIDs))
 
 			for _, tool := range conn.Tools {
+				if slices.Contains(serverCfg.HiddenTools, tool.Name) {
+					continue // callable by code via the manager, never offered to an agent
+				}
 				for _, agentID := range agentIDs {
 					agent, ok := al.registry.GetAgent(agentID)
 					if !ok {
@@ -259,6 +263,16 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 				}
 				if useBM25 {
 					agent.Tools.Register(tools.NewBM25SearchTool(agent.Tools, ttl, maxSearchResults))
+				}
+			}
+		}
+
+		for _, agentID := range agentIDs {
+			if agent, ok := al.registry.GetAgent(agentID); ok {
+				if t, ok := agent.Tools.Get("group_activity"); ok {
+					if ga, ok := t.(*tools.GroupActivityTool); ok {
+						ga.SetMCP(mcpManager)
+					}
 				}
 			}
 		}

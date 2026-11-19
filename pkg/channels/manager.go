@@ -102,6 +102,24 @@ type Manager struct {
 	streamActive              sync.Map          // streamSuppressionKey → true (set when streamer.Finalize sent the message)
 	streamAuxiliaryTombstones sync.Map          // streamSuppressionKey → time.Time (drops late auxiliary messages after stream final)
 	channelHashes             map[string]string // channel name → config hash
+	silentFilter              func(bus.InboundContext) bool
+}
+
+type silentFilterSetter interface {
+	SetSilentFilter(f func(bus.InboundContext) bool)
+}
+
+// SetSilentFilter makes every channel (current and future) drop inbound messages for which f is true, before any
+// typing indicator, reaction or placeholder is sent.
+func (m *Manager) SetSilentFilter(f func(bus.InboundContext) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.silentFilter = f
+	for _, ch := range m.channels {
+		if setter, ok := ch.(silentFilterSetter); ok {
+			setter.SetSilentFilter(f)
+		}
+	}
 }
 
 type mediaStoreSetter interface {
@@ -1002,6 +1020,9 @@ func (m *Manager) initChannel(typeName, channelName string) {
 		// Inject PlaceholderRecorder if channel supports it
 		if setter, ok := ch.(interface{ SetPlaceholderRecorder(r PlaceholderRecorder) }); ok {
 			setter.SetPlaceholderRecorder(m)
+		}
+		if setter, ok := ch.(silentFilterSetter); ok && m.silentFilter != nil {
+			setter.SetSilentFilter(m.silentFilter)
 		}
 		// Inject owner reference so BaseChannel.HandleMessage can auto-trigger typing/reaction
 		if setter, ok := ch.(interface{ SetOwner(ch Channel) }); ok {

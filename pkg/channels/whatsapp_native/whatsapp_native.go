@@ -36,6 +36,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/groupactivity"
 	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/utils"
@@ -79,6 +80,7 @@ type WhatsAppNativeChannel struct {
 	contacts       *dmContacts                                          // nil unless msg_hub is configured
 	sendText       func(ctx context.Context, chatID, text string) error // overridden in tests
 	seen           seenIDs                                              // inbound message IDs already handled
+	activity       *groupactivity.Store                                 // nil = group_activity off
 }
 
 // seenIDs remembers message IDs for an hour: a message that failed to decrypt can arrive again
@@ -210,6 +212,7 @@ func (c *WhatsAppNativeChannel) Start(ctx context.Context) error {
 	if c.config.MsgHub != nil { // before events can arrive
 		c.contacts = loadDMContacts(filepath.Join(c.storePath, hubContactsFile), time.Now)
 	}
+	c.startGroupActivity()
 	client.AddEventHandler(c.eventHandler)
 
 	c.mu.Lock()
@@ -344,6 +347,10 @@ func (c *WhatsAppNativeChannel) Stop(ctx context.Context) error {
 	}
 
 	c.contacts.flush()
+	if c.activity != nil {
+		_ = c.activity.Close()
+		c.activity = nil
+	}
 
 	// Now it is safe to clear and close resources.
 	c.mu.Lock()
@@ -461,6 +468,10 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 	isGroup := evt.Info.Chat.Server == types.GroupServer
+	// Counting runs before every filter (group_apps, allowlist, mention rules): members who never reach the bot count too.
+	if isGroup {
+		c.countGroupMessage(evt)
+	}
 	// group_apps.d applies to every group, allowlisted or not, so it runs before group_policy.
 	if isGroup && c.tryGroupApp(evt) {
 		return

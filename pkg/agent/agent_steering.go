@@ -103,7 +103,7 @@ func (al *AgentLoop) resolveSteeringTarget(msg bus.InboundMessage) (string, stri
 	}
 
 	route, agent, err := al.resolveMessageRoute(msg)
-	if err != nil || agent == nil {
+	if err != nil || agent == nil || route.Silent {
 		return "", "", false
 	}
 	allocation := al.allocateRouteSession(route, msg)

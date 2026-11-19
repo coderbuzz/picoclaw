@@ -8,9 +8,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/mcp"
@@ -311,5 +316,48 @@ func TestEnsureMCPInitialized_LoadFailureSetsInitErr(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "failed to load MCP servers") {
 		t.Fatalf("second ensureMCPInitialized() error = %q, want wrapped load failure", err.Error())
+	}
+}
+
+// hidden_tools: the tool is offered to no agent (the default agent has no mcpServers allowlist), yet code can call it.
+func TestEnsureMCPInitialized_HiddenToolsNotRegisteredButCallable(t *testing.T) {
+	al, cfg, _, _, cleanup := newTestAgentLoop(t)
+	defer cleanup()
+	defer al.Close()
+
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "app", Version: "1"}, nil)
+	for _, name := range []string{"ringkasan", "nama_anggota"} {
+		server.AddTool(&sdkmcp.Tool{Name: name, InputSchema: json.RawMessage(`{"type":"object"}`)},
+			func(_ context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+				return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: req.Params.Name + " ok"}}}, nil
+			})
+	}
+	srv := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, nil))
+	defer srv.Close()
+
+	cfg.Tools = config.ToolsConfig{
+		MCP: config.MCPConfig{
+			ToolConfig: config.ToolConfig{Enabled: true},
+			Servers: map[string]config.MCPServerConfig{
+				"app": {Enabled: true, Type: "http", URL: srv.URL, HiddenTools: []string{"nama_anggota"}},
+			},
+		},
+	}
+	if err := al.ensureMCPInitialized(context.Background()); err != nil {
+		t.Fatalf("ensureMCPInitialized() error = %v", err)
+	}
+
+	agent := al.registry.GetDefaultAgent()
+	if _, ok := agent.Tools.Get("mcp_app_ringkasan"); !ok {
+		t.Errorf("visible tool missing; registered: %v", agent.Tools.List())
+	}
+	for _, n := range agent.Tools.List() {
+		if strings.Contains(n, "nama_anggota") {
+			t.Errorf("hidden tool registered as %q", n)
+		}
+	}
+	res, err := al.mcp.getManager().CallTool(context.Background(), "app", "nama_anggota", nil)
+	if err != nil || res.Content[0].(*sdkmcp.TextContent).Text != "nama_anggota ok" {
+		t.Fatalf("hidden tool must stay callable by code: %v %+v", err, res)
 	}
 }
