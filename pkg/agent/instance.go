@@ -190,6 +190,10 @@ func NewAgentInstance(
 		}
 	}
 
+	if agentCfg != nil && agentCfg.GroupOpen {
+		toolsRegistry.Register(tools.NewGroupOpenTool(cfg))
+	}
+
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessions := initSessionStore(sessionsDir)
 

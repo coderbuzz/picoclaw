@@ -5,6 +5,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/groupopen"
 )
 
 func testConfig(agents []config.AgentConfig) *config.Config {
@@ -254,5 +255,43 @@ func TestResolveRoute_SilentRuleDropsOnlyWhatItMatches(t *testing.T) {
 	in.ChatID = "g2"
 	if route := r.ResolveRoute(in); route.Silent || route.AgentID != "main" {
 		t.Fatalf("other chat = %+v, want default", route)
+	}
+}
+
+func TestResolveRoute_SilentRuleOpenAgent(t *testing.T) {
+	cfg := testConfig([]config.AgentConfig{{ID: "main", Default: true}, {ID: "alumni"}})
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+	cfg.Agents.Dispatch = &config.DispatchConfig{
+		Rules: []config.DispatchRule{
+			{Name: "g1", Agent: "-", OpenAgent: "alumni", When: config.DispatchSelector{Channel: "whatsapp", Chat: "group:g1"}},
+			{Name: "g2", Agent: "-", When: config.DispatchSelector{Channel: "whatsapp", Chat: "group:g2"}},
+			{Name: "g3", Agent: "-", OpenAgent: "ghost", When: config.DispatchSelector{Channel: "whatsapp", Chat: "group:g3"}},
+		},
+	}
+	r := NewRouteResolver(cfg)
+	store := groupopen.For(cfg.WorkspacePath())
+	in := func(chat string) bus.InboundContext {
+		return bus.InboundContext{Channel: "whatsapp", ChatID: chat, ChatType: "group", SenderID: "200"}
+	}
+
+	if route := r.ResolveRoute(in("g1")); !route.Silent {
+		t.Fatalf("closed = %+v, want silent", route)
+	}
+	for _, chat := range []string{"g1", "g2", "g3"} {
+		_ = store.Set(OpenKey("whatsapp", "group:"+chat), true)
+	}
+	route := r.ResolveRoute(in("g1"))
+	if route.Silent || route.AgentID != "alumni" || route.MatchedBy != "dispatch.rule:g1 (open)" {
+		t.Fatalf("open = %+v, want alumni via g1 (open)", route)
+	}
+	if route := r.ResolveRoute(in("g2")); !route.Silent {
+		t.Fatalf("rule without open_agent must stay silent: %+v", route)
+	}
+	if route := r.ResolveRoute(in("g3")); !route.Silent {
+		t.Fatalf("unknown open_agent must stay silent: %+v", route)
+	}
+	_ = store.Set(OpenKey("whatsapp", "group:g1"), false)
+	if route := r.ResolveRoute(in("g1")); !route.Silent {
+		t.Fatalf("closed again = %+v, want silent", route)
 	}
 }

@@ -334,6 +334,9 @@ type AgentConfig struct {
 	// GroupActivity registers the group_activity tool (per-member message counts of the current group); needs
 	// channel_list.whatsapp.settings.group_activity.
 	GroupActivity bool `json:"group_activity,omitempty"`
+	// GroupOpen registers the group_open tool (open/close a silent group for ordinary members); needs a dispatch
+	// rule with agent "-" and open_agent for the chat.
+	GroupOpen bool `json:"group_open,omitempty"`
 }
 
 // GroupActivityConfig turns on message counting for the listed WhatsApp groups. Only counts are stored (no content).
@@ -398,8 +401,11 @@ type DispatchConfig struct {
 }
 
 type DispatchRule struct {
-	Name              string           `json:"name,omitempty"`
-	Agent             string           `json:"agent"`
+	Name  string `json:"name,omitempty"`
+	Agent string `json:"agent"`
+	// OpenAgent only applies when Agent is "-": while the chat is opened (group_open tool) the rule routes to this
+	// agent instead of dropping the message.
+	OpenAgent         string           `json:"open_agent,omitempty"`
 	When              DispatchSelector `json:"when"`
 	SessionDimensions []string         `json:"session_dimensions,omitempty"`
 }

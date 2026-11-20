@@ -50,3 +50,22 @@ names are shown. Mark the lookup tool in `hidden_tools` so nobody can ask it thr
 
 Counts only, no content, retention-limited, only groups listed by the owner, numbers never shown. Announce the
 counter in the group when switching it on.
+
+## Opening a silent group: `open_agent` + tool `group_open`
+
+A silent rule can be opened temporarily (members may talk to the bot) and closed again from the chat, no restart:
+
+```json
+{"name": "wa alumni group", "agent": "-", "open_agent": "alumni",
+ "when": {"channel": "whatsapp", "chat": "group:<jid>@g.us"}}
+```
+
+- `open_agent` only means something with `agent: "-"`. While the chat is opened the rule routes to that agent
+  (`MatchedBy` = rule name + ` (open)`); if the agent does not exist the chat stays silent. Rules above (owner, staff)
+  are unaffected.
+- State: `group_open.json` in the main workspace folder (sorted list of `channel|chat` keys, written atomically,
+  read at start). Default = closed.
+- Tool `group_open` (`action`: `open`, `close`, `status`): register with `agents.list[].group_open: true` and list it
+  in the agent's `tools:`. The chat is the one of the current turn, never an argument; a chat without a `-` rule that
+  has `open_agent` gets "Grup ini tidak punya mode diam". Typical use: owner/staff says "@bot jangan diem aja" (open)
+  or "@bot diem" (close).
