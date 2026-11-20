@@ -6,6 +6,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/groupopen"
 )
 
 // SessionPolicy describes how a routed message should be mapped to a session.
@@ -49,6 +50,12 @@ func (r *RouteResolver) ResolveRoute(inbound bus.InboundContext) ResolvedRoute {
 
 	if rule := r.matchDispatchRule(view); rule != nil {
 		if strings.TrimSpace(rule.Agent) == SilentAgent {
+			if open := r.openAgent(rule, view); open != "" {
+				return ResolvedRoute{
+					AgentID: open, Channel: channel, AccountID: accountID,
+					SessionPolicy: r.sessionPolicy(rule), MatchedBy: matchedByForRule(rule) + " (open)",
+				}
+			}
 			return ResolvedRoute{
 				AgentID: SilentAgent, Channel: channel, AccountID: accountID,
 				SessionPolicy: r.sessionPolicy(rule), MatchedBy: matchedByForRule(rule), Silent: true,
@@ -70,6 +77,25 @@ func (r *RouteResolver) ResolveRoute(inbound bus.InboundContext) ResolvedRoute {
 		SessionPolicy: r.sessionPolicy(nil),
 		MatchedBy:     "default",
 	}
+}
+
+// OpenKey is the persisted key of a chat: channel plus the chat as dispatch rules write it (e.g. "group:<jid>").
+func OpenKey(channel, chat string) string {
+	return strings.ToLower(strings.TrimSpace(channel)) + "|" + strings.ToLower(strings.TrimSpace(chat))
+}
+
+// openAgent returns the rule's open_agent when the chat is opened and that agent exists, else "".
+func (r *RouteResolver) openAgent(rule *config.DispatchRule, view dispatchView) string {
+	id := NormalizeAgentID(strings.TrimSpace(rule.OpenAgent))
+	if strings.TrimSpace(rule.OpenAgent) == "" || !groupopen.For(r.cfg.WorkspacePath()).IsOpen(OpenKey(view.Channel, view.Chat)) {
+		return ""
+	}
+	for _, a := range r.cfg.Agents.List {
+		if NormalizeAgentID(a.ID) == id {
+			return id
+		}
+	}
+	return "" // unknown agent: stay silent rather than fall back to the default agent
 }
 
 func (r *RouteResolver) pickAgentID(agentID string) string {
