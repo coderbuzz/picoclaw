@@ -194,6 +194,10 @@ func NewAgentInstance(
 		toolsRegistry.Register(tools.NewGroupOpenTool(cfg))
 	}
 
+	if agentCfg != nil && agentCfg.Panggilan != nil {
+		toolsRegistry.Register(tools.NewPanggilanTool(agentCfg.Panggilan, workspace))
+	}
+
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessions := initSessionStore(sessionsDir)
 

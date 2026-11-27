@@ -337,6 +337,16 @@ type AgentConfig struct {
 	// GroupOpen registers the group_open tool (open/close a silent group for ordinary members); needs a dispatch
 	// rule with agent "-" and open_agent for the chat.
 	GroupOpen bool `json:"group_open,omitempty"`
+	// Panggilan enables the built-in panggilan tool (read/write preferred callname and gender by sender ID); nil = disabled.
+	Panggilan *AgentPanggilanConfig `json:"panggilan,omitempty"`
+}
+
+// AgentPanggilanConfig configures the panggilan tool for an agent.
+type AgentPanggilanConfig struct {
+	// File is the path to panggilan.md (relative to the agent's workspace, or absolute; default "panggilan.md").
+	File string `json:"file,omitempty"`
+	// CanSetAny allows setting/deleting entries for another target_id (admin/staff); false limits writes to the caller's own SenderID.
+	CanSetAny bool `json:"can_set_any,omitempty"`
 }
 
 // GroupActivityConfig turns on message counting for the listed WhatsApp groups. Only counts are stored (no content).
