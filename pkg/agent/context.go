@@ -18,6 +18,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/skills"
+	"github.com/sipeed/picoclaw/pkg/tools"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -26,6 +27,7 @@ type ContextBuilder struct {
 	skillsLoader   *skills.SkillsLoader
 	memory         *MemoryStore
 	splitOnMarker  bool
+	panggilanFile  string
 	agentDiscovery func(agentID string) []AgentDescriptor
 	promptRegistry *PromptRegistry
 
@@ -68,6 +70,11 @@ func (cb *ContextBuilder) WithToolDiscovery(useBM25, useRegex bool) *ContextBuil
 
 func (cb *ContextBuilder) WithSplitOnMarker(enabled bool) *ContextBuilder {
 	cb.splitOnMarker = enabled
+	return cb
+}
+
+func (cb *ContextBuilder) WithPanggilanFile(path string) *ContextBuilder {
+	cb.panggilanFile = strings.TrimSpace(path)
 	return cb
 }
 
@@ -813,6 +820,15 @@ func (cb *ContextBuilder) buildDynamicContext(
 	}
 	if senderLine := formatCurrentSenderLine(senderID, senderDisplayName); senderLine != "" {
 		fmt.Fprintf(&sb, "\n\n## Current Sender\n%s", senderLine)
+		if cb.panggilanFile != "" && senderID != "" {
+			if callname, gender, ok := tools.LookupPanggilan(cb.panggilanFile, senderID); ok && callname != "" {
+				if gender != "" && gender != "-" {
+					fmt.Fprintf(&sb, "\nPanggilan: %s (Gender: %s)", callname, gender)
+				} else {
+					fmt.Fprintf(&sb, "\nPanggilan: %s", callname)
+				}
+			}
+		}
 	}
 
 	return sb.String()

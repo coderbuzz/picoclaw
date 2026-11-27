@@ -194,6 +194,10 @@ func NewAgentInstance(
 		toolsRegistry.Register(tools.NewGroupOpenTool(cfg))
 	}
 
+	if agentCfg != nil && agentCfg.Panggilan != nil {
+		toolsRegistry.Register(tools.NewPanggilanTool(agentCfg.Panggilan, workspace))
+	}
+
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessions := initSessionStore(sessionsDir)
 
@@ -204,6 +208,9 @@ func NewAgentInstance(
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseRegex,
 		).
 		WithSplitOnMarker(cfg.Agents.Defaults.SplitOnMarker)
+	if agentCfg != nil && agentCfg.Panggilan != nil {
+		contextBuilder.WithPanggilanFile(tools.ResolvePanggilanFile(agentCfg.Panggilan, workspace))
+	}
 
 	agentID := routing.DefaultAgentID
 	agentName := ""

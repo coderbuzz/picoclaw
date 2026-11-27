@@ -81,6 +81,10 @@ func ToolReplyToMessageID(ctx context.Context) string {
 	return toolshared.ToolReplyToMessageID(ctx)
 }
 
+func ToolSenderID(ctx context.Context) string {
+	return toolshared.ToolSenderID(ctx)
+}
+
 func ToolAgentID(ctx context.Context) string {
 	return toolshared.ToolAgentID(ctx)
 }
