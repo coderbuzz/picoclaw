@@ -198,6 +198,10 @@ func NewAgentInstance(
 		toolsRegistry.Register(tools.NewPanggilanTool(agentCfg.Panggilan, workspace))
 	}
 
+	if agentCfg != nil && agentCfg.VoiceNote != nil {
+		toolsRegistry.Register(tools.NewVoiceNoteTool(agentCfg.VoiceNote))
+	}
+
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessions := initSessionStore(sessionsDir)
 

@@ -339,6 +339,16 @@ type AgentConfig struct {
 	GroupOpen bool `json:"group_open,omitempty"`
 	// Panggilan enables the built-in panggilan tool (read/write preferred callname and gender by sender ID); nil = disabled.
 	Panggilan *AgentPanggilanConfig `json:"panggilan,omitempty"`
+	// VoiceNote enables the built-in voice_note tool (edge-tts + ffmpeg -> WhatsApp PTT .ogg); nil = disabled.
+	VoiceNote *AgentVoiceNoteConfig `json:"voice_note,omitempty"`
+}
+
+// AgentVoiceNoteConfig configures the voice_note tool for an agent.
+type AgentVoiceNoteConfig struct {
+	Command      string `json:"command,omitempty"`       // edge-tts binary (default: "edge-tts")
+	Voice        string `json:"voice,omitempty"`         // default voice (default: "id-ID-GadisNeural")
+	MaxChars     int    `json:"max_chars,omitempty"`     // max characters per voice note (default: 1000)
+	CooldownSecs int    `json:"cooldown_secs,omitempty"` // per-chat cooldown in seconds (default: 10)
 }
 
 // AgentPanggilanConfig configures the panggilan tool for an agent.
