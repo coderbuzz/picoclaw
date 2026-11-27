@@ -35,10 +35,21 @@ func TestGroupOpenTool(t *testing.T) {
 	if r := run("1203630000000000@g.us", "close"); r.IsError || !strings.Contains(r.ForLLM, "diam") || store.IsOpen(key) {
 		t.Fatalf("close = %+v", r)
 	}
-	for _, chat := range []string{"other@g.us", "unknown@g.us", ""} {
+	for _, chat := range []string{"other@g.us", "unknown@g.us"} {
 		if r := run(chat, "open"); !r.IsError || !strings.Contains(r.ForLLM, "tidak punya mode diam") {
 			t.Fatalf("chat %q must be refused: %+v", chat, r)
 		}
+	}
+	// From DM (not a group JID), single silent rule is auto-selected.
+	dmCtx := toolshared.WithToolContext(context.Background(), "whatsapp", "628123456789@s.whatsapp.net")
+	if r := tool.Execute(dmCtx, map[string]any{"action": "open"}); r.IsError || !store.IsOpen(key) {
+		t.Fatalf("DM auto-select open failed: %+v", r)
+	}
+	if r := tool.Execute(dmCtx, map[string]any{"action": "close", "group": "alumni"}); r.IsError || store.IsOpen(key) {
+		t.Fatalf("DM explicit group close failed: %+v", r)
+	}
+	if r := tool.Execute(dmCtx, map[string]any{"action": "open", "group": "nonexistent"}); !r.IsError {
+		t.Fatalf("unknown group must fail: %+v", r)
 	}
 	if r := run("1203630000000000@g.us", "bogus"); !r.IsError {
 		t.Fatal("bad action must error")
