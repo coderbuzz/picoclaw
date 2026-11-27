@@ -37,7 +37,8 @@ type PanggilanTool struct {
 	filePath string
 }
 
-func NewPanggilanTool(cfg *config.AgentPanggilanConfig, workspace string) *PanggilanTool {
+// ResolvePanggilanFile returns the resolved path to panggilan.md for cfg and workspace.
+func ResolvePanggilanFile(cfg *config.AgentPanggilanConfig, workspace string) string {
 	file := ""
 	if cfg != nil {
 		file = strings.TrimSpace(cfg.File)
@@ -48,7 +49,31 @@ func NewPanggilanTool(cfg *config.AgentPanggilanConfig, workspace string) *Pangg
 	if !filepath.IsAbs(file) {
 		file = filepath.Join(workspace, file)
 	}
-	return &PanggilanTool{cfg: cfg, filePath: file}
+	return file
+}
+
+// LookupPanggilan looks up senderID in filePath and returns their recorded callname and gender.
+func LookupPanggilan(filePath, senderID string) (panggilan, gender string, ok bool) {
+	id := strings.TrimSpace(senderID)
+	if filePath == "" || id == "" {
+		return "", "", false
+	}
+	panggilanFileMu.Lock()
+	defer panggilanFileMu.Unlock()
+	entries, _, err := (&PanggilanTool{filePath: filePath}).load()
+	if err != nil {
+		return "", "", false
+	}
+	for _, e := range entries {
+		if e.ID == id {
+			return e.Panggilan, e.Gender, true
+		}
+	}
+	return "", "", false
+}
+
+func NewPanggilanTool(cfg *config.AgentPanggilanConfig, workspace string) *PanggilanTool {
+	return &PanggilanTool{cfg: cfg, filePath: ResolvePanggilanFile(cfg, workspace)}
 }
 
 func (t *PanggilanTool) Name() string { return "panggilan" }

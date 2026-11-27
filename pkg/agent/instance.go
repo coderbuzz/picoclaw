@@ -208,6 +208,9 @@ func NewAgentInstance(
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseRegex,
 		).
 		WithSplitOnMarker(cfg.Agents.Defaults.SplitOnMarker)
+	if agentCfg != nil && agentCfg.Panggilan != nil {
+		contextBuilder.WithPanggilanFile(tools.ResolvePanggilanFile(agentCfg.Panggilan, workspace))
+	}
 
 	agentID := routing.DefaultAgentID
 	agentName := ""
